@@ -1,0 +1,11 @@
+build*/
+cmake-build-*/
+outputs/
+tmp/
+data/
+*.o
+*.a
+*.so
+*.dll
+*.exe
+__pycache__/
