@@ -131,8 +131,7 @@ and evaluation mode. All small-dataset recipes use IVF256; BIGANN uses IVF65536.
 | OpenAI-ArXiv | 1536 | 6 / 12 | 500,000 | 1,821,096 | 15 | [M6](configs/openai_arxiv_train500k_m6.cfg), [M12](configs/openai_arxiv_train500k_m12.cfg) |
 | BIGANN / SIFT1B | 128 | 6 / 10 | 30,000,000 | 1,000,000,000 | 25 | [M6](configs/sift1b_m6_65k_30m_10615_161520.cfg), [M10](configs/sift1b_m10_65k_30m_10615_161520.cfg) |
 
-The supplied configs use basic RSD2. Base linkage rank is selected separately:
-DEEP M10 and BIGANN M6 select RSD3; the other configs select RSD2.
+The supplied configs use RSD2 for both basic encoding and base linkage.
 To compare RSD2 and RSD3 with one trained model, change only
 `base.linkage.rsd_rank` during base construction.
 
