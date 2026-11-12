@@ -64,12 +64,14 @@ cmake --build build-cpu --target stlqpp_build_index -j 8
 ```
 
 For a custom OpenBLAS installation, add
-`-DSTLQpp_OPENBLAS_ROOT=/path/to/openblas`. Run the CPU executable with both
-`runtime.use_cuda=false` and `eval.linkage.gpu_norm_enable=false`.
+`-DSTLQpp_OPENBLAS_ROOT=/path/to/openblas`. CPU builds automatically select CPU
+execution and CPU norm preparation. In a CUDA build, `runtime.use_cuda=false`
+or no visible CUDA device selects the same CPU path.
 
-On Windows, use an x64 MSVC developer shell and oneMKL. With a multi-configuration
+For Windows, see the [Windows build and run guide](docs/WINDOWS.md) for MSVC CPU and
+CUDA builds with either oneMKL or OpenBLAS. With a multi-configuration
 generator, append `--config Release` to the build command; the executable is in
-`build-release-lto/Release/`.
+the build directory's `Release/` subdirectory.
 
 ## First run: SIFT1M
 
@@ -107,9 +109,7 @@ For CPU-only execution:
 
 ```bash
 ./build-cpu/stlqpp_build_index \
-  --config configs/sift1m_m6.cfg \
-  --set runtime.use_cuda=false \
-  --set eval.linkage.gpu_norm_enable=false
+  --config configs/sift1m_m6.cfg
 ```
 
 Logs remain visible in the terminal and are archived by the program.

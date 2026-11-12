@@ -1057,9 +1057,11 @@ CanonicalIndexWriter<M>& CanonicalIndexWriter<M>::operator=(
 template <int M>
 StatusOr<CanonicalIndexWriter<M>> CanonicalIndexWriter<M>::Create(
     const CanonicalIndexWriteRequest<M>& request) {
-  if (M != 0 && request.model.codebooks.shape.m != M)
-    return Status::InvalidArgument(
-        "canonical writer M disagrees with model shape");
+  if constexpr (M != 0) {
+    if (request.model.codebooks.shape.m != M)
+      return Status::InvalidArgument(
+          "canonical writer M disagrees with model shape");
+  }
   const auto& books = request.model.codebooks;
   auto writer = RuntimeCanonicalIndexWriter::Create(
       {.destination = request.destination,

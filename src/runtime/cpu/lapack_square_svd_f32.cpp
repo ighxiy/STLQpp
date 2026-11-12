@@ -70,9 +70,12 @@ Status LapackSquareSvdF32::Solve(
   }
   // Keep the validated rotation path: cast U/Vt to FP32 here, then let
   // RotationUpdater assemble R with its existing FP32 GEMM.
-  std::copy_n(singular_values, system.order, system.singular_values);
-  std::copy_n(left, size, system.left_vectors);
-  std::copy_n(right_transposed, size, system.right_vectors_transposed);
+  const auto to_float = [](double value) { return static_cast<float>(value); };
+  std::transform(singular_values, singular_values + system.order,
+                 system.singular_values, to_float);
+  std::transform(left, left + size, system.left_vectors, to_float);
+  std::transform(right_transposed, right_transposed + size,
+                 system.right_vectors_transposed, to_float);
   return Status::Ok();
 }
 

@@ -3,6 +3,7 @@
 
 #include "stlqpp/application/config_schema.h"
 #include "stlqpp/application/config_text.h"
+#include "stlqpp/application/compute_backend.h"
 #include "stlqpp/core/filesystem_path.h"
 #include "stlqpp/core/execution/workload_thread_budget.h"
 #include "stlqpp/platform/mapped_file.h"
@@ -480,573 +481,1005 @@ StatusOr<BuildCommand> ParseFlatBuildCommand(int argc, char** argv) {
       return InvalidCommand("missing value for " + std::string(option));
     }
     const std::string_view value = argv[++index];
-    bool parsed = true;
-    if (option == "--train-enabled") {
-      parsed = ParseBool(value, &output.train_enabled);
-    } else if (option == "--train-init-enabled") {
-      parsed = ParseBool(value, &output.train_initialization_enabled);
-    } else if (option == "--train-init-linkage-mode") {
-      parsed = value == "legacy_root_only" || value == "fast_init";
-      if (parsed) output.init_linkage_mode = value;
-    } else if (option == "--base-encode-enabled") {
-      parsed = ParseBool(value, &output.base_encode_enabled);
-    } else if (option == "--base-linkage-enabled") {
-      parsed = ParseBool(value, &output.base_linkage_enabled);
-    } else if (option == "--eval-only") {
-      parsed = ParseBool(value, &output.eval_only);
-    } else if (option == "--train-checkpoint-enabled") {
-      parsed = ParseBool(value, &output.train_checkpoint_enabled);
-    } else if (option == "--train-checkpoint-every-r") {
-      parsed = ParseInteger(value, &output.train_checkpoint_every_r);
-    } else if (option == "--train-checkpoint-file") {
-      output.train_checkpoint_file = value;
-    } else if (option == "--output-prefix") {
-      output.output_prefix = value;
-    } else if (option == "--reused-base-list-directory") {
-      output.reused_base_list_directory = value;
-    } else if (option == "--base-basic-checkpoint-enabled") {
-      parsed = ParseBool(value, &output.base_basic_checkpoint_enabled);
-    } else if (option == "--linkage-checkpoint-enabled") {
-      parsed = ParseBool(value, &output.linkage_checkpoint_enabled);
-    } else if (option == "--m") {
-      parsed = ParseInteger(value, &output.m);
-      have_m = true;
-    } else if (option == "--train-format") {
-      parsed = ParseSourceFormat(value, &output.training_format);
-      have_training_format = true;
-    } else if (option == "--base-format") {
-      parsed = ParseSourceFormat(value, &output.base_format);
-      have_base_format = true;
-    } else if (option == "--dataset") {
-      output.dataset_name = value;
-      have_dataset = true;
-    } else if (option == "--data-root") {
-      output.dataset_data_root = value;
-    } else if (option == "--train") {
-      output.training_file = value;
-      have_train = true;
-    } else if (option == "--train-first-row") {
-      parsed = ParseInteger(value, &output.training_first_row);
-    } else if (option == "--train-rows") {
-      parsed = ParseInteger(value, &output.training_rows);
-      have_train_rows = true;
-    } else if (option == "--base") {
-      output.base_file = value;
-      have_base = true;
-    } else if (option == "--base-first-row") {
-      parsed = ParseInteger(value, &output.base_first_row);
-    } else if (option == "--base-rows") {
-      parsed = ParseInteger(value, &output.base_rows);
-      have_base_rows = true;
-    } else if (option == "--dimension") {
-      parsed = ParseInteger(value, &output.dimension);
-    } else if (option == "--nlist") {
-      parsed = ParseInteger(value, &output.nlist);
-      have_nlist = true;
-    } else if (option == "--init-samples") {
-      parsed = ParseInteger(value, &output.initialization_samples);
-      have_init_samples = true;
-    } else if (option == "--root-initialization") {
-      parsed = ParseRootInitialization(value, &output.root_initialization);
-      have_root_initialization = true;
-    } else if (option == "--kmeans-iters") {
-      parsed = ParseInteger(value, &output.root_initialization.maximum_iterations);
-    } else if (option == "--kmeans-tol") {
-      parsed = ParseDouble(value, &output.root_initialization.tolerance);
-    } else if (option == "--kmeans-init") {
-      parsed = value == "kmeansll" || value == "random" ||
-          value == "kmeans++";
-      if (parsed) output.root_initialization.seed_method = value;
-    } else if (option == "--kmeansll-rounds") {
-      parsed = ParseInteger(value, &output.root_initialization.kmeans_parallel_rounds);
-    } else if (option == "--kmeansll-oversample") {
-      parsed = ParseDouble(value, &output.root_initialization.kmeans_parallel_oversample);
-    } else if (option == "--kmeansll-candidate-cap") {
-      parsed = ParseInteger(value, &output.root_initialization.candidate_cap);
-    } else if (option == "--kmeans-initial-weight") {
-      parsed = ParseDouble(value, &output.root_initialization.initial_weight);
-    } else if (option == "--kmeans-min-weight") {
-      parsed = ParseDouble(value, &output.root_initialization.minimum_weight);
-    } else if (option == "--kmeans-outlier-quantile") {
-      parsed = ParseDouble(value, &output.root_initialization.outlier_quantile);
-    } else if (option == "--kmeans-cost-threshold") {
-      parsed = ParseDouble(value, &output.root_initialization.cost_threshold);
-    } else if (option == "--kmeans-annealing-factor") {
-      parsed = ParseDouble(value, &output.root_initialization.annealing_factor);
-    } else if (option == "--kmeans-warmup-iters") {
-      parsed = ParseInteger(value, &output.root_initialization.warmup_iterations);
-    } else if (option == "--kmeans-quantile-bins") {
-      parsed = ParseInteger(value, &output.root_initialization.quantile_bins);
-    } else if (option == "--kmeans-large-k-threshold") {
-      parsed = ParseInteger(value, &output.root_initialization.large_layer_threshold);
-    } else if (option == "--kmeans-large-k-top-coarse") {
-      parsed = ParseInteger(value, &output.root_initialization.large_layer_top_coarse);
-    } else if (option == "--kmeans-large-k-hier2-enable") {
-      parsed = ParseBool(value, &output.root_initialization.large_layer_hierarchy_enabled);
-    } else if (option == "--kmeans-large-k-fixed-k1") {
-      parsed = ParseInteger(value, &output.root_initialization.large_layer_fixed_coarse_count);
-    } else if (option == "--kmeans-large-k-k1-min") {
-      parsed = ParseInteger(value, &output.root_initialization.large_layer_minimum_coarse_count);
-    } else if (option == "--kmeans-large-k-k1-max") {
-      parsed = ParseInteger(value, &output.root_initialization.large_layer_maximum_coarse_count);
-    } else if (option == "--kmeans-large-k-k1-pow2") {
-      parsed = ParseBool(value, &output.root_initialization.large_layer_round_coarse_to_power_of_two);
-    } else if (option == "--train-seed") {
-      parsed = ParseInteger(value, &output.train_seed);
-      have_train_seed = true;
-    } else if (option == "--rounds") {
-      parsed = ParseInteger(value, &output.training_rounds);
-      have_training_rounds = true;
-    } else if (option == "--train-use-opq-rotation") {
-      parsed = ParseBool(value, &output.train_use_opq_rotation);
-    } else if (option == "--train-log-metrics") {
-      parsed = ParseBool(value, &output.train_log_metrics);
-    } else if (option == "--train-log-linkage-pre-c1") {
-      parsed = ParseBool(value, &output.train_log_linkage_pre_c1);
-    } else if (option == "--train-basic-ils-iterations") {
-      parsed = ParseInteger(value, &output.train_basic_ils_iterations);
-    } else if (option == "--train-basic-icm-iterations") {
-      parsed = ParseInteger(value, &output.train_basic_icm_iterations);
-    } else if (option == "--train-basic-perturbations") {
-      parsed = ParseInteger(value, &output.train_basic_perturbations);
-    } else if (option == "--training-basic-rsd-rank") {
-      parsed = ParseInteger(value, &output.training_basic_rsd_rank);
-    } else if (option == "--least-squares-cost-mode") {
-      parsed = ParseLeastSquaresCostMode(
-          value, &output.least_squares_cost_mode);
-    } else if (option == "--kmeansll-seed") {
-      parsed = ParseInteger(
-          value, &output.root_initialization.kmeans_parallel_seed);
-    } else if (option == "--base-seed") {
-      parsed = ParseInteger(value, &output.base_seed);
-      have_base_seed = true;
-    } else if (option == "--base-basic-ils-iterations") {
-      parsed = ParseInteger(value, &output.base_basic_ils_iterations);
-    } else if (option == "--base-basic-icm-iterations") {
-      parsed = ParseInteger(value, &output.base_basic_icm_iterations);
-    } else if (option == "--base-basic-perturbations") {
-      parsed = ParseInteger(value, &output.base_basic_perturbations);
-    } else if (option == "--base-basic-rsd-rank") {
-      parsed = ParseInteger(value, &output.base_basic_rsd_rank);
-    } else if (option == "--good-cluster-fraction") {
-      parsed = ParseDouble(value, &output.good_cluster_fraction);
-      have_good_fraction = true;
-    } else if (option == "--bad-cluster-weight") {
-      parsed = ParseDouble(value, &output.bad_cluster_training_weight);
-      have_bad_cluster_weight = true;
-    } else if (option == "--training-topology") {
-      parsed = ParseTopology(value, &output.training_topology);
-      have_training_topology = true;
-    } else if (option == "--training-topology-layers") {
-      parsed = ParseInteger(value, &output.training_topology.radial_layer_count);
-    } else if (option == "--training-topology-root-fraction") {
-      parsed = ParseDouble(value, &output.training_topology.root_fraction);
-    } else if (option == "--training-topology-depth-k") {
-      parsed = ParseInteger(value, &output.training_topology.depth_k);
-    } else if (option == "--training-topology-knn-k") {
-      parsed = ParseInteger(value, &output.training_topology.knn_k);
-    } else if (option == "--training-topology-maximum-depth") {
-      parsed = ParseInteger(value, &output.training_topology.maximum_depth);
-    } else if (option == "--training-topology-seed") {
-      parsed = ParseInteger(value, &output.training_topology.seed);
-    } else if (option == "--training-linkage-rsd-rank") {
-      parsed = ParseInteger(value, &output.training_topology.rsd_rank);
-    } else if (option == "--init-linkage-icm-rounds") {
-      parsed = ParseInteger(value, &output.init_linkage_icm_rounds);
-    } else if (option == "--training-linkage-icm-rounds") {
-      parsed = ParseInteger(value, &output.training_topology.icm_rounds);
-    } else if (option == "--base-topology") {
-      parsed = ParseTopology(value, &output.base_topology);
-      have_base_topology = true;
-    } else if (option == "--base-topology-layers") {
-      parsed = ParseInteger(value, &output.base_topology.radial_layer_count);
-    } else if (option == "--base-topology-root-fraction") {
-      parsed = ParseDouble(value, &output.base_topology.root_fraction);
-    } else if (option == "--base-topology-depth-k") {
-      parsed = ParseInteger(value, &output.base_topology.depth_k);
-    } else if (option == "--base-topology-knn-k") {
-      parsed = ParseInteger(value, &output.base_topology.knn_k);
-    } else if (option == "--base-topology-maximum-depth") {
-      parsed = ParseInteger(value, &output.base_topology.maximum_depth);
-    } else if (option == "--base-topology-seed") {
-      parsed = ParseInteger(value, &output.base_topology.seed);
-    } else if (option == "--base-linkage-rsd-rank") {
-      parsed = ParseInteger(value, &output.base_topology.rsd_rank);
-    } else if (option == "--base-linkage-icm-rounds") {
-      parsed = ParseInteger(value, &output.base_topology.icm_rounds);
-    } else if (option == "--train-linkage-bad-cluster-knn-backend") {
-      output.training_topology.bad_cluster_knn_backend = value;
-    } else if (option == "--train-linkage-bad-cluster-cpu-exact-max-points") {
-      parsed = ParseInteger(value, &output.training_topology.bad_cluster_cpu_exact_max_points);
-
-    } else if (option == "--base-linkage-bad-cluster-knn-backend") {
-      output.base_topology.bad_cluster_knn_backend = value;
-    } else if (option == "--base-linkage-bad-cluster-cpu-exact-max-points") {
-      parsed = ParseInteger(value, &output.base_topology.bad_cluster_cpu_exact_max_points);
-
-    } else if (option == "--hnsw-m") {
-      parsed = ParseInteger(value, &output.hnsw_m);
-    } else if (option == "--hnsw-ef-construction-cap") {
-      parsed = ParseInteger(value, &output.hnsw_ef_construction_cap);
-    } else if (option == "--hnsw-ef-search") {
-      parsed = ParseInteger(value, &output.hnsw_ef_search);
-    } else if (option == "--virtual-roots") {
-      parsed = ParseVirtualRoots(value, &output.virtual_roots);
-      have_virtual_roots = true;
-    } else if (option == "--virtual-ratio") {
-      parsed = ParseDouble(value, &output.virtual_roots.ratio);
-    } else if (option == "--virtual-minimum") {
-      parsed = ParseInteger(value, &output.virtual_roots.minimum);
-    } else if (option == "--virtual-maximum") {
-      parsed = ParseInteger(value, &output.virtual_roots.maximum);
-    } else if (option == "--virtual-neighbor-count") {
-      parsed = ParseInteger(value, &output.virtual_roots.neighbor_count);
-    } else if (option == "--virtual-local-connectivity") {
-      parsed = ParseInteger(value, &output.virtual_roots.local_connectivity);
-    } else if (option == "--virtual-overlap-threshold") {
-      double overlap = 0.0;
-      parsed = ParseDouble(value, &overlap);
-      output.virtual_roots.overlap_threshold = static_cast<float>(overlap);
-    } else if (option == "--virtual-anchor-neighbor-k") {
-      parsed = ParseInteger(value, &output.virtual_roots.anchor_neighbor_k);
-    } else if (option == "--virtual-prefer-peaks") {
-      parsed = ParseBool(value, &output.virtual_roots.prefer_density_peaks);
-    } else if (option == "--virtual-enabled") {
-      parsed = ParseBool(value, &output.virtual_roots.enabled);
-    } else if (option == "--virtual-use-fixed-per-cluster") {
-      parsed = ParseBool(value, &output.virtual_roots.use_fixed_per_cluster);
-    } else if (option == "--virtual-fixed-per-cluster") {
-      parsed = ParseInteger(value, &output.virtual_roots.fixed_per_cluster);
-    } else if (option == "--work") {
-      output.work_directory = value;
-      have_work = true;
-    } else if (option == "--output") {
-      output.output_directory = value;
-      have_output = true;
-    } else if (option == "--archive-log") {
-      parsed = ParseBool(value, &output.archive_log);
-      have_archive_log = true;
-    } else if (option == "--protect-existing-outputs") {
-      parsed = ParseBool(value, &output.protect_existing_outputs);
-    } else if (option == "--control-evidence") {
-      output.control_evidence = value;
-    } else if (option == "--resume-initialized") {
-      output.resume_initialized_checkpoint = value;
-    } else if (option == "--threads") {
-      parsed = ParseInteger(value, &output.cpu_threads);
-      have_threads = true;
-    } else if (option == "--omp-places") {
-      output.omp_places = value;
-    } else if (option == "--omp-proc-bind") {
-      output.omp_proc_bind = value;
-    } else if (option == "--base-list-threads") {
-      parsed = ParseInteger(value, &output.base_list_threads);
-      have_base_list_threads = true;
-    } else if (option == "--root-moment-partitions") {
-      parsed = ParseInteger(value, &output.root_moment_partitions);
-      have_root_moment_partitions = true;
-    } else if (option == "--rotation-moment-partitions") {
-      parsed = ParseInteger(value, &output.rotation_moment_partitions);
-      have_rotation_moment_partitions = true;
-    } else if (option == "--init-edge-moment-shards") {
-      parsed = ParseInteger(
-          value, &output.initialization_edge_moment_shards);
-      have_initialization_edge_moment_shards = true;
-    } else if (option == "--train-edge-moment-shards") {
-      parsed = ParseInteger(value, &output.training_edge_moment_shards);
-      have_training_edge_moment_shards = true;
-    } else if (option == "--cuda-device") {
-      parsed = ParseInteger(value, &output.cuda_device);
-      have_device = true;
-    } else if (option == "--use-cuda") {
-      parsed = ParseBool(value, &output.use_cuda);
-      have_use_cuda = true;
-    } else if (option == "--gpu-norm-enable") {
-      parsed = ParseBool(value, &output.gpu_norm_enable);
-    } else if (option == "--train-block-rows") {
-      parsed = ParseInteger(value, &output.training_block_rows);
-      have_training_block_rows = true;
-    } else if (option == "--base-block-rows") {
-      parsed = ParseInteger(value, &output.base_block_rows);
-      have_base_block_rows = true;
-    } else if (option == "--cids-per-bucket") {
-      parsed = ParseInteger(value, &output.cids_per_bucket);
-      have_cids_per_bucket = true;
-    } else if (option == "--bucket-flush-mib") {
-      parsed = ParseInteger(value, &output.bucket_flush_mebibytes);
-    } else if (option == "--cleanup-enabled") {
-      parsed = ParseBool(value, &output.cleanup.enabled);
-    } else if (option == "--cleanup-preset") {
-      parsed = ParseCleanupPreset(value, &output.cleanup.preset);
-    } else if (option == "--cleanup-keep-base-basic") {
-      parsed = ParseInteger(value, &output.cleanup.keep_base_basic);
-    } else if (option == "--cleanup-keep-base-basic-cluster-id") {
-      parsed = ParseInteger(
-          value, &output.cleanup.keep_base_basic_cluster_id);
-    } else if (option == "--cleanup-keep-base-basic-ivf-lists") {
-      parsed = ParseInteger(
-          value, &output.cleanup.keep_base_basic_ivf_lists);
-    } else if (option == "--cleanup-keep-base-list") {
-      parsed = ParseInteger(value, &output.cleanup.keep_base_list);
-    } else if (option == "--cleanup-keep-base-list-raw") {
-      parsed = ParseInteger(value, &output.cleanup.keep_base_list_raw);
-    } else if (option == "--cleanup-keep-linkage-list-f32") {
-      parsed = ParseInteger(
-          value, &output.cleanup.keep_linkage_list_f32);
-    } else if (option == "--cleanup-keep-linkage-parent-u32") {
-      parsed = ParseInteger(
-          value, &output.cleanup.keep_linkage_parent_u32);
-    } else if (option == "--base-linkage-store-coefficients-f32") {
-      parsed = ParseBool(
-          value, &output.base_linkage_store_coefficients_f32);
-    } else if (option == "--basic-inflight-blocks") {
-      parsed = ParseInteger(value, &output.basic_inflight_blocks);
-      have_basic_inflight_blocks = true;
-    } else if (option == "--basic-async-io-enabled") {
-      parsed = ParseBool(value, &output.basic_async_io_enabled);
-      have_basic_async_io_enabled = true;
-    } else if (option == "--basic-async-io-depth") {
-      parsed = ParseInteger(value, &output.basic_async_io_depth);
-      have_basic_async_io_depth = true;
-    } else if (option == "--basic-async-io-mib") {
-      parsed = ParseInteger(value, &output.basic_async_io_mebibytes);
-      have_basic_async_io_mebibytes = true;
-    } else if (option == "--basic-async-write-enabled") {
-      parsed = ParseBool(value, &output.basic_async_write_enabled);
-      have_basic_async_write_enabled = true;
-    } else if (option == "--basic-async-write-depth") {
-      parsed = ParseInteger(value, &output.basic_async_write_depth);
-      have_basic_async_write_depth = true;
-    } else if (option == "--basic-async-write-mib") {
-      parsed = ParseInteger(value, &output.basic_async_write_mebibytes);
-      have_basic_async_write_mebibytes = true;
-    } else if (option == "--cuda-mode") {
-      if (value == "fast") {
-        output.cuda_mode = CudaMode::kFast;
-      } else if (value == "strict") {
-        output.cuda_mode = CudaMode::kStrict;
-      } else {
-        parsed = false;
+    // Early returns keep this dispatch below MSVC's block-nesting limit.
+    const auto parsed_option = [&]() -> std::optional<bool> {
+      bool parsed = true;
+      if (option == "--train-enabled") {
+        parsed = ParseBool(value, &output.train_enabled);
+        return parsed;
       }
-      have_cuda_mode = true;
-    } else if (option == "--cuda-allow-tf32") {
-      parsed = ParseBool(value, &output.requested_cuda_allow_tf32);
-      have_cuda_allow_tf32 = true;
-    } else if (option == "--root-score-buffer-mib") {
-      parsed = ParseInteger(value, &output.root_score_buffer_mebibytes);
-      have_root_score_buffer = true;
-    } else if (option == "--root-normalized-cache-mib") {
-      parsed = ParseInteger(
-          value, &output.root_normalized_cache_mebibytes);
-      have_root_normalized_cache = true;
-    } else if (option == "--linkage-large-root-xc0-chunk-mib") {
-      parsed = ParseInteger(
-          value, &output.linkage_large_root_xc0_chunk_mebibytes);
-      have_linkage_xc0_chunk = true;
-    } else if (option == "--linkage-large-root-workspace-mib") {
-      parsed = ParseInteger(
-          value, &output.linkage_large_root_workspace_mebibytes);
-      have_linkage_workspace = true;
-    } else if (option == "--init-linkage-large-root-xc0-chunk-mib") {
-      parsed = ParseInteger(
-          value, &output.init_linkage_large_root_xc0_chunk_mebibytes);
-      have_init_linkage_xc0_chunk = true;
-    } else if (option == "--init-linkage-large-root-workspace-mib") {
-      parsed = ParseInteger(
-          value, &output.init_linkage_large_root_workspace_mebibytes);
-      have_init_linkage_workspace = true;
-    } else if (option == "--linkage-chunk-max-pairs") {
-      parsed = ParseInteger(value, &output.linkage_chunk_max_pairs);
-    } else if (option == "--init-linkage-chunk-max-pairs") {
-      parsed = ParseInteger(value, &output.init_linkage_chunk_max_pairs);
-    } else if (option == "--coefficient-quantile") {
-      double candidate = 0.0;
-      parsed = ParseDouble(value, &candidate) && candidate > 0.0 &&
-          candidate <= 1.0;
-      if (parsed) {
-        output.coefficient_first_magnitude_quantiles = {candidate};
-        output.coefficient_rest_magnitude_quantiles = {candidate};
+      if (option == "--train-init-enabled") {
+        parsed = ParseBool(value, &output.train_initialization_enabled);
+        return parsed;
       }
-      have_coefficient_first_quantiles = true;
-      have_coefficient_rest_quantiles = true;
-    } else if (option == "--coefficient-p-first-candidates") {
-      parsed = ParsePercentCandidates(
-          value, &output.coefficient_first_magnitude_quantiles);
-      have_coefficient_first_quantiles = true;
-    } else if (option == "--coefficient-p-rest-candidates") {
-      parsed = ParsePercentCandidates(
-          value, &output.coefficient_rest_magnitude_quantiles);
-      have_coefficient_rest_quantiles = true;
-    } else if (option == "--coefficient-codec-enabled") {
-      parsed = ParseBool(value, &output.coefficient_codec_enabled);
-    } else if (option == "--coefficient-weighted-quantile") {
-      parsed = ParseBool(value, &output.coefficient_weighted_quantile);
-    } else if (option == "--coefficient-allow-clipping") {
-      parsed = ParseBool(value, &output.coefficient_allow_clipping);
-    } else if (option == "--coefficient-fit-scale") {
-      parsed = ParseBool(value, &output.coefficient_fit_scale);
-    } else if (option == "--coefficient-refinement-sweeps") {
-      parsed = ParseInteger(value, &output.coefficient_refinement_sweeps);
-    } else if (option == "--coefficient-refinement-max-layer") {
-      parsed = ParseInteger(value, &output.coefficient_refinement_max_layer);
-    } else if (option == "--coefficient-refinement-step-limit") {
-      parsed = ParseInteger(value, &output.coefficient_refinement_step_limit);
-    } else if (option == "--coefficient-bits-per-layer") {
-      parsed = ParseU32List(value, &output.coefficient_bits_per_layer);
-    } else if (option == "--coefficient-bits-per-layer-root") {
-      parsed = ParseU32List(value, &output.coefficient_bits_per_layer_root);
-    } else if (option == "--coefficient-bits-per-layer-linkage") {
-      parsed = ParseU32List(value, &output.coefficient_bits_per_layer_linkage);
-    } else if (option == "--disk-norm2-mode") {
-      output.eval_disk_norm2_mode = value;
-      parsed = value == "lut" || value == "exact";
-    } else if (option == "--norm8-mode") {
-      parsed = ParseNorm8Mode(value, &output.norm8_mode);
-    } else if (option == "--norm8-lloyd-iterations") {
-      parsed = ParseInteger(value, &output.norm8_lloyd_iterations);
-      have_norm8_iterations = true;
-    } else if (option == "--base-eval-enabled") {
-      parsed = ParseBool(value, &output.eval_base_enabled);
-    } else if (option == "--base-eval-use-ivf") {
-      parsed = ParseBool(value, &output.eval_base_use_ivf);
-    } else if (option == "--base-eval-nprobe") {
-      parsed = ParseInteger(value, &output.eval_base_nprobe);
-    } else if (option == "--base-eval-warmup") {
-      parsed = ParseInteger(value, &output.eval_base_warmup);
-    } else if (option == "--base-eval-repeat") {
-      parsed = ParseInteger(value, &output.eval_base_repeat);
-    } else if (option == "--linkage-eval-enabled") {
-      parsed = ParseBool(value, &output.eval_linkage_enabled);
-    } else if (option == "--eval-modes") {
-      parsed = ParseEvalRepresentations(
-          value, &output.eval_representations_auto,
-          &output.eval_representations);
-    } else if (option == "--eval-score-mode") {
-      parsed = value == "l2" || value == "cosine_recon" ||
-               value == "mips_recon";
-      if (parsed) output.eval_score_mode = value;
-    } else if (option == "--topology-inflight-clusters") {
-      parsed = ParseInteger(value, &output.topology_inflight_clusters);
-      have_topology_inflight = true;
-    } else if (option == "--linkage-async-io-enabled") {
-      parsed = ParseBool(value, &output.linkage_async_io_enabled);
-      have_linkage_async_io_enabled = true;
-    } else if (option == "--linkage-async-io-depth") {
-      parsed = ParseInteger(value, &output.linkage_async_io_depth);
-      have_linkage_async_io_depth = true;
-    } else if (option == "--linkage-scheduler-enabled") {
-      parsed = ParseBool(value, &output.linkage_scheduler_enabled);
-    } else if (option ==
-               "--linkage-scheduler-transport-batching-enabled") {
-      parsed = ParseBool(
-          value, &output.linkage_scheduler_transport_batching_enabled);
-    } else if (option == "--linkage-scheduler-stable") {
-      parsed = ParseBool(value, &output.linkage_scheduler_stable);
-    } else if (option == "--linkage-direct-pool-size") {
-      parsed = ParseInteger(value, &output.linkage_direct_pool_size);
-    } else if (option == "--init-linkage-direct-pool-size") {
-      parsed = ParseInteger(
-          value, &output.initialization_linkage_direct_pool_size);
-    } else if (option == "--linkage-eval-async-pinned-mib") {
-      parsed = ParseInteger(
-          value, &output.linkage_eval_async_pinned_mebibytes);
-    } else if (option == "--init-linkage-eval-async-pinned-mib") {
-      parsed = ParseInteger(
-          value,
-          &output.initialization_linkage_eval_async_pinned_mebibytes);
-    } else if (option == "--linkage-scheduler-workers") {
-      parsed = ParseInteger(value, &output.linkage_scheduler_workers);
-      have_linkage_scheduler_workers = true;
-    } else if (option == "--linkage-scheduler-queue-capacity") {
-      parsed = ParseInteger(
-          value, &output.linkage_scheduler_queue_capacity);
-      have_linkage_scheduler_queue = true;
-    } else if (option == "--linkage-rfull-cache-buffers") {
-      parsed = ParseInteger(value, &output.linkage_rfull_cache_buffers);
-      have_linkage_cache_buffers = true;
-    } else if (option == "--linkage-rfull-cache-mib") {
-      parsed = ParseInteger(value, &output.linkage_rfull_cache_mebibytes);
-      have_linkage_cache_mebibytes = true;
-    } else if (option == "--linkage-safety-reserve-mib") {
-      parsed = ParseInteger(
-          value, &output.linkage_safety_reserve_mebibytes);
-      have_linkage_safety_reserve = true;
-    } else if (option == "--linkage-inner-batch-rows") {
-      parsed = ParseInteger(value, &output.linkage_inner_batch_rows);
-      have_linkage_inner_rows = true;
-    } else if (option == "--linkage-max-batch-pairs") {
-      parsed = ParseInteger(value, &output.linkage_max_batch_pairs);
-      have_linkage_max_pairs = true;
-    } else if (option == "--linkage-init-max-batch-pairs") {
-      parsed = ParseInteger(value, &output.linkage_init_max_batch_pairs);
-      have_linkage_init_max_pairs = true;
-    } else if (option == "--linkage-many-nodes-preflush-target-pairs") {
-      parsed = ParseInteger(
-          value, &output.linkage_many_nodes_preflush_target_pairs);
-      have_linkage_many_nodes_preflush_pairs = true;
-    } else if (option == "--linkage-same-layer-block-rows") {
-      parsed = ParseInteger(value, &output.linkage_same_layer_block_rows);
-      have_linkage_same_block_rows = true;
-    } else if (option == "--linkage-same-layer-minimum-pairs") {
-      parsed = ParseInteger(
-          value, &output.linkage_same_layer_minimum_pairs);
-      have_linkage_same_minimum_pairs = true;
-    } else if (option == "--linkage-same-layer-window-maximum-pairs") {
-      parsed = ParseInteger(
-          value, &output.linkage_same_layer_window_maximum_pairs);
-      have_linkage_same_window_maximum_pairs = true;
-    } else if (option == "--linkage-same-layer-maximum-pending-nodes") {
-      parsed = ParseInteger(
-          value, &output.linkage_same_layer_maximum_pending_nodes);
-      have_linkage_same_maximum_pending_nodes = true;
-    } else if (option == "--linkage-same-layer-preflush-target-pairs") {
-      parsed = ParseInteger(
-          value, &output.linkage_same_layer_preflush_target_pairs);
-      have_linkage_same_preflush_pairs = true;
-    } else if (option == "--linkage-same-layer-preflush-target-nodes") {
-      parsed = ParseInteger(
-          value, &output.linkage_same_layer_preflush_target_nodes);
-      have_linkage_same_preflush_nodes = true;
-    } else if (option == "--linkage-tiny-forced-pair-limit") {
-      parsed = ParseInteger(value, &output.linkage_tiny_forced_pair_limit);
-      have_linkage_tiny_limit = true;
-    } else if (option == "--linkage-tiny-forced-cpu-enabled") {
-      parsed = ParseBool(value, &output.linkage_tiny_forced_cpu_enabled);
-    } else if (option == "--init-linkage-tiny-forced-cpu-enabled") {
-      parsed = ParseBool(
-          value, &output.initialization_linkage_tiny_forced_cpu_enabled);
-    } else if (option == "--linkage-tiny-forced-node-limit") {
-      parsed = ParseInteger(value, &output.linkage_tiny_forced_node_limit);
-    } else if (option == "--linkage-single-gpu-min-candidates") {
-      parsed = ParseInteger(
-          value, &output.linkage_single_gpu_min_candidates);
-    } else if (option == "--linkage-single-gpu-max-candidates") {
-      parsed = ParseInteger(
-          value, &output.linkage_single_gpu_max_candidates);
-    } else if (option ==
-               "--linkage-same-layer-single-gpu-min-candidates") {
-      parsed = ParseInteger(
-          value, &output.linkage_same_layer_single_gpu_min_candidates);
-    } else if (option == "--linkage-bad-window-rows") {
-      parsed = ParseInteger(value, &output.linkage_bad_window_rows);
-      have_linkage_bad_window_rows = true;
-    } else if (option == "--linkage-bad-window-maximum-pairs") {
-      parsed = ParseInteger(value, &output.linkage_bad_window_maximum_pairs);
-      have_linkage_bad_window_max_pairs = true;
-    } else if (option == "--final-spool-window-clusters") {
-      parsed = ParseInteger(value, &output.final_spool_window_clusters);
-      have_final_spool_clusters = true;
-    } else if (option == "--final-spool-window-real-rows") {
-      parsed = ParseInteger(value, &output.final_spool_window_real_rows);
-      have_final_spool_rows = true;
-    } else {
+      if (option == "--train-init-linkage-mode") {
+        parsed = value == "legacy_root_only" || value == "fast_init";
+        if (parsed) output.init_linkage_mode = value;
+        return parsed;
+      }
+      if (option == "--base-encode-enabled") {
+        parsed = ParseBool(value, &output.base_encode_enabled);
+        return parsed;
+      }
+      if (option == "--base-linkage-enabled") {
+        parsed = ParseBool(value, &output.base_linkage_enabled);
+        return parsed;
+      }
+      if (option == "--eval-only") {
+        parsed = ParseBool(value, &output.eval_only);
+        return parsed;
+      }
+      if (option == "--train-checkpoint-enabled") {
+        parsed = ParseBool(value, &output.train_checkpoint_enabled);
+        return parsed;
+      }
+      if (option == "--train-checkpoint-every-r") {
+        parsed = ParseInteger(value, &output.train_checkpoint_every_r);
+        return parsed;
+      }
+      if (option == "--train-checkpoint-file") {
+        output.train_checkpoint_file = value;
+        return parsed;
+      }
+      if (option == "--output-prefix") {
+        output.output_prefix = value;
+        return parsed;
+      }
+      if (option == "--reused-base-list-directory") {
+        output.reused_base_list_directory = value;
+        return parsed;
+      }
+      if (option == "--base-basic-checkpoint-enabled") {
+        parsed = ParseBool(value, &output.base_basic_checkpoint_enabled);
+        return parsed;
+      }
+      if (option == "--linkage-checkpoint-enabled") {
+        parsed = ParseBool(value, &output.linkage_checkpoint_enabled);
+        return parsed;
+      }
+      if (option == "--m") {
+        parsed = ParseInteger(value, &output.m);
+        have_m = true;
+        return parsed;
+      }
+      if (option == "--train-format") {
+        parsed = ParseSourceFormat(value, &output.training_format);
+        have_training_format = true;
+        return parsed;
+      }
+      if (option == "--base-format") {
+        parsed = ParseSourceFormat(value, &output.base_format);
+        have_base_format = true;
+        return parsed;
+      }
+      if (option == "--dataset") {
+        output.dataset_name = value;
+        have_dataset = true;
+        return parsed;
+      }
+      if (option == "--data-root") {
+        output.dataset_data_root = value;
+        return parsed;
+      }
+      if (option == "--train") {
+        output.training_file = value;
+        have_train = true;
+        return parsed;
+      }
+      if (option == "--train-first-row") {
+        parsed = ParseInteger(value, &output.training_first_row);
+        return parsed;
+      }
+      if (option == "--train-rows") {
+        parsed = ParseInteger(value, &output.training_rows);
+        have_train_rows = true;
+        return parsed;
+      }
+      if (option == "--base") {
+        output.base_file = value;
+        have_base = true;
+        return parsed;
+      }
+      if (option == "--base-first-row") {
+        parsed = ParseInteger(value, &output.base_first_row);
+        return parsed;
+      }
+      if (option == "--base-rows") {
+        parsed = ParseInteger(value, &output.base_rows);
+        have_base_rows = true;
+        return parsed;
+      }
+      if (option == "--dimension") {
+        parsed = ParseInteger(value, &output.dimension);
+        return parsed;
+      }
+      if (option == "--nlist") {
+        parsed = ParseInteger(value, &output.nlist);
+        have_nlist = true;
+        return parsed;
+      }
+      if (option == "--init-samples") {
+        parsed = ParseInteger(value, &output.initialization_samples);
+        have_init_samples = true;
+        return parsed;
+      }
+      if (option == "--root-initialization") {
+        parsed = ParseRootInitialization(value, &output.root_initialization);
+        have_root_initialization = true;
+        return parsed;
+      }
+      if (option == "--kmeans-iters") {
+        parsed = ParseInteger(value, &output.root_initialization.maximum_iterations);
+        return parsed;
+      }
+      if (option == "--kmeans-tol") {
+        parsed = ParseDouble(value, &output.root_initialization.tolerance);
+        return parsed;
+      }
+      if (option == "--kmeans-init") {
+        parsed = value == "kmeansll" || value == "random" ||
+            value == "kmeans++";
+        if (parsed) output.root_initialization.seed_method = value;
+        return parsed;
+      }
+      if (option == "--kmeansll-rounds") {
+        parsed = ParseInteger(value, &output.root_initialization.kmeans_parallel_rounds);
+        return parsed;
+      }
+      if (option == "--kmeansll-oversample") {
+        parsed = ParseDouble(value, &output.root_initialization.kmeans_parallel_oversample);
+        return parsed;
+      }
+      if (option == "--kmeansll-candidate-cap") {
+        parsed = ParseInteger(value, &output.root_initialization.candidate_cap);
+        return parsed;
+      }
+      if (option == "--kmeans-initial-weight") {
+        parsed = ParseDouble(value, &output.root_initialization.initial_weight);
+        return parsed;
+      }
+      if (option == "--kmeans-min-weight") {
+        parsed = ParseDouble(value, &output.root_initialization.minimum_weight);
+        return parsed;
+      }
+      if (option == "--kmeans-outlier-quantile") {
+        parsed = ParseDouble(value, &output.root_initialization.outlier_quantile);
+        return parsed;
+      }
+      if (option == "--kmeans-cost-threshold") {
+        parsed = ParseDouble(value, &output.root_initialization.cost_threshold);
+        return parsed;
+      }
+      if (option == "--kmeans-annealing-factor") {
+        parsed = ParseDouble(value, &output.root_initialization.annealing_factor);
+        return parsed;
+      }
+      if (option == "--kmeans-warmup-iters") {
+        parsed = ParseInteger(value, &output.root_initialization.warmup_iterations);
+        return parsed;
+      }
+      if (option == "--kmeans-quantile-bins") {
+        parsed = ParseInteger(value, &output.root_initialization.quantile_bins);
+        return parsed;
+      }
+      if (option == "--kmeans-large-k-threshold") {
+        parsed = ParseInteger(value, &output.root_initialization.large_layer_threshold);
+        return parsed;
+      }
+      if (option == "--kmeans-large-k-top-coarse") {
+        parsed = ParseInteger(value, &output.root_initialization.large_layer_top_coarse);
+        return parsed;
+      }
+      if (option == "--kmeans-large-k-hier2-enable") {
+        parsed = ParseBool(value, &output.root_initialization.large_layer_hierarchy_enabled);
+        return parsed;
+      }
+      if (option == "--kmeans-large-k-fixed-k1") {
+        parsed = ParseInteger(value, &output.root_initialization.large_layer_fixed_coarse_count);
+        return parsed;
+      }
+      if (option == "--kmeans-large-k-k1-min") {
+        parsed = ParseInteger(value, &output.root_initialization.large_layer_minimum_coarse_count);
+        return parsed;
+      }
+      if (option == "--kmeans-large-k-k1-max") {
+        parsed = ParseInteger(value, &output.root_initialization.large_layer_maximum_coarse_count);
+        return parsed;
+      }
+      if (option == "--kmeans-large-k-k1-pow2") {
+        parsed = ParseBool(value, &output.root_initialization.large_layer_round_coarse_to_power_of_two);
+        return parsed;
+      }
+      if (option == "--train-seed") {
+        parsed = ParseInteger(value, &output.train_seed);
+        have_train_seed = true;
+        return parsed;
+      }
+      if (option == "--rounds") {
+        parsed = ParseInteger(value, &output.training_rounds);
+        have_training_rounds = true;
+        return parsed;
+      }
+      if (option == "--train-use-opq-rotation") {
+        parsed = ParseBool(value, &output.train_use_opq_rotation);
+        return parsed;
+      }
+      if (option == "--train-log-metrics") {
+        parsed = ParseBool(value, &output.train_log_metrics);
+        return parsed;
+      }
+      if (option == "--train-log-linkage-pre-c1") {
+        parsed = ParseBool(value, &output.train_log_linkage_pre_c1);
+        return parsed;
+      }
+      if (option == "--train-basic-ils-iterations") {
+        parsed = ParseInteger(value, &output.train_basic_ils_iterations);
+        return parsed;
+      }
+      if (option == "--train-basic-icm-iterations") {
+        parsed = ParseInteger(value, &output.train_basic_icm_iterations);
+        return parsed;
+      }
+      if (option == "--train-basic-perturbations") {
+        parsed = ParseInteger(value, &output.train_basic_perturbations);
+        return parsed;
+      }
+      if (option == "--training-basic-rsd-rank") {
+        parsed = ParseInteger(value, &output.training_basic_rsd_rank);
+        return parsed;
+      }
+      if (option == "--least-squares-cost-mode") {
+        parsed = ParseLeastSquaresCostMode(
+            value, &output.least_squares_cost_mode);
+        return parsed;
+      }
+      if (option == "--kmeansll-seed") {
+        parsed = ParseInteger(
+            value, &output.root_initialization.kmeans_parallel_seed);
+        return parsed;
+      }
+      if (option == "--base-seed") {
+        parsed = ParseInteger(value, &output.base_seed);
+        have_base_seed = true;
+        return parsed;
+      }
+      if (option == "--base-basic-ils-iterations") {
+        parsed = ParseInteger(value, &output.base_basic_ils_iterations);
+        return parsed;
+      }
+      if (option == "--base-basic-icm-iterations") {
+        parsed = ParseInteger(value, &output.base_basic_icm_iterations);
+        return parsed;
+      }
+      if (option == "--base-basic-perturbations") {
+        parsed = ParseInteger(value, &output.base_basic_perturbations);
+        return parsed;
+      }
+      if (option == "--base-basic-rsd-rank") {
+        parsed = ParseInteger(value, &output.base_basic_rsd_rank);
+        return parsed;
+      }
+      if (option == "--good-cluster-fraction") {
+        parsed = ParseDouble(value, &output.good_cluster_fraction);
+        have_good_fraction = true;
+        return parsed;
+      }
+      if (option == "--bad-cluster-weight") {
+        parsed = ParseDouble(value, &output.bad_cluster_training_weight);
+        have_bad_cluster_weight = true;
+        return parsed;
+      }
+      if (option == "--training-topology") {
+        parsed = ParseTopology(value, &output.training_topology);
+        have_training_topology = true;
+        return parsed;
+      }
+      if (option == "--training-topology-layers") {
+        parsed = ParseInteger(value, &output.training_topology.radial_layer_count);
+        return parsed;
+      }
+      if (option == "--training-topology-root-fraction") {
+        parsed = ParseDouble(value, &output.training_topology.root_fraction);
+        return parsed;
+      }
+      if (option == "--training-topology-depth-k") {
+        parsed = ParseInteger(value, &output.training_topology.depth_k);
+        return parsed;
+      }
+      if (option == "--training-topology-knn-k") {
+        parsed = ParseInteger(value, &output.training_topology.knn_k);
+        return parsed;
+      }
+      if (option == "--training-topology-maximum-depth") {
+        parsed = ParseInteger(value, &output.training_topology.maximum_depth);
+        return parsed;
+      }
+      if (option == "--training-topology-seed") {
+        parsed = ParseInteger(value, &output.training_topology.seed);
+        return parsed;
+      }
+      if (option == "--training-linkage-rsd-rank") {
+        parsed = ParseInteger(value, &output.training_topology.rsd_rank);
+        return parsed;
+      }
+      if (option == "--init-linkage-icm-rounds") {
+        parsed = ParseInteger(value, &output.init_linkage_icm_rounds);
+        return parsed;
+      }
+      if (option == "--training-linkage-icm-rounds") {
+        parsed = ParseInteger(value, &output.training_topology.icm_rounds);
+        return parsed;
+      }
+      if (option == "--base-topology") {
+        parsed = ParseTopology(value, &output.base_topology);
+        have_base_topology = true;
+        return parsed;
+      }
+      if (option == "--base-topology-layers") {
+        parsed = ParseInteger(value, &output.base_topology.radial_layer_count);
+        return parsed;
+      }
+      if (option == "--base-topology-root-fraction") {
+        parsed = ParseDouble(value, &output.base_topology.root_fraction);
+        return parsed;
+      }
+      if (option == "--base-topology-depth-k") {
+        parsed = ParseInteger(value, &output.base_topology.depth_k);
+        return parsed;
+      }
+      if (option == "--base-topology-knn-k") {
+        parsed = ParseInteger(value, &output.base_topology.knn_k);
+        return parsed;
+      }
+      if (option == "--base-topology-maximum-depth") {
+        parsed = ParseInteger(value, &output.base_topology.maximum_depth);
+        return parsed;
+      }
+      if (option == "--base-topology-seed") {
+        parsed = ParseInteger(value, &output.base_topology.seed);
+        return parsed;
+      }
+      if (option == "--base-linkage-rsd-rank") {
+        parsed = ParseInteger(value, &output.base_topology.rsd_rank);
+        return parsed;
+      }
+      if (option == "--base-linkage-icm-rounds") {
+        parsed = ParseInteger(value, &output.base_topology.icm_rounds);
+        return parsed;
+      }
+      if (option == "--train-linkage-bad-cluster-knn-backend") {
+        output.training_topology.bad_cluster_knn_backend = value;
+        return parsed;
+      }
+      if (option == "--train-linkage-bad-cluster-cpu-exact-max-points") {
+        parsed = ParseInteger(value, &output.training_topology.bad_cluster_cpu_exact_max_points);
+
+        return parsed;
+      }
+      if (option == "--base-linkage-bad-cluster-knn-backend") {
+        output.base_topology.bad_cluster_knn_backend = value;
+        return parsed;
+      }
+      if (option == "--base-linkage-bad-cluster-cpu-exact-max-points") {
+        parsed = ParseInteger(value, &output.base_topology.bad_cluster_cpu_exact_max_points);
+
+        return parsed;
+      }
+      if (option == "--hnsw-m") {
+        parsed = ParseInteger(value, &output.hnsw_m);
+        return parsed;
+      }
+      if (option == "--hnsw-ef-construction-cap") {
+        parsed = ParseInteger(value, &output.hnsw_ef_construction_cap);
+        return parsed;
+      }
+      if (option == "--hnsw-ef-search") {
+        parsed = ParseInteger(value, &output.hnsw_ef_search);
+        return parsed;
+      }
+      if (option == "--virtual-roots") {
+        parsed = ParseVirtualRoots(value, &output.virtual_roots);
+        have_virtual_roots = true;
+        return parsed;
+      }
+      if (option == "--virtual-ratio") {
+        parsed = ParseDouble(value, &output.virtual_roots.ratio);
+        return parsed;
+      }
+      if (option == "--virtual-minimum") {
+        parsed = ParseInteger(value, &output.virtual_roots.minimum);
+        return parsed;
+      }
+      if (option == "--virtual-maximum") {
+        parsed = ParseInteger(value, &output.virtual_roots.maximum);
+        return parsed;
+      }
+      if (option == "--virtual-neighbor-count") {
+        parsed = ParseInteger(value, &output.virtual_roots.neighbor_count);
+        return parsed;
+      }
+      if (option == "--virtual-local-connectivity") {
+        parsed = ParseInteger(value, &output.virtual_roots.local_connectivity);
+        return parsed;
+      }
+      if (option == "--virtual-overlap-threshold") {
+        double overlap = 0.0;
+        parsed = ParseDouble(value, &overlap);
+        output.virtual_roots.overlap_threshold = static_cast<float>(overlap);
+        return parsed;
+      }
+      if (option == "--virtual-anchor-neighbor-k") {
+        parsed = ParseInteger(value, &output.virtual_roots.anchor_neighbor_k);
+        return parsed;
+      }
+      if (option == "--virtual-prefer-peaks") {
+        parsed = ParseBool(value, &output.virtual_roots.prefer_density_peaks);
+        return parsed;
+      }
+      if (option == "--virtual-enabled") {
+        parsed = ParseBool(value, &output.virtual_roots.enabled);
+        return parsed;
+      }
+      if (option == "--virtual-use-fixed-per-cluster") {
+        parsed = ParseBool(value, &output.virtual_roots.use_fixed_per_cluster);
+        return parsed;
+      }
+      if (option == "--virtual-fixed-per-cluster") {
+        parsed = ParseInteger(value, &output.virtual_roots.fixed_per_cluster);
+        return parsed;
+      }
+      if (option == "--work") {
+        output.work_directory = value;
+        have_work = true;
+        return parsed;
+      }
+      if (option == "--output") {
+        output.output_directory = value;
+        have_output = true;
+        return parsed;
+      }
+      if (option == "--archive-log") {
+        parsed = ParseBool(value, &output.archive_log);
+        have_archive_log = true;
+        return parsed;
+      }
+      if (option == "--protect-existing-outputs") {
+        parsed = ParseBool(value, &output.protect_existing_outputs);
+        return parsed;
+      }
+      if (option == "--control-evidence") {
+        output.control_evidence = value;
+        return parsed;
+      }
+      if (option == "--resume-initialized") {
+        output.resume_initialized_checkpoint = value;
+        return parsed;
+      }
+      if (option == "--threads") {
+        parsed = ParseInteger(value, &output.cpu_threads);
+        have_threads = true;
+        return parsed;
+      }
+      if (option == "--omp-places") {
+        output.omp_places = value;
+        return parsed;
+      }
+      if (option == "--omp-proc-bind") {
+        output.omp_proc_bind = value;
+        return parsed;
+      }
+      if (option == "--base-list-threads") {
+        parsed = ParseInteger(value, &output.base_list_threads);
+        have_base_list_threads = true;
+        return parsed;
+      }
+      if (option == "--root-moment-partitions") {
+        parsed = ParseInteger(value, &output.root_moment_partitions);
+        have_root_moment_partitions = true;
+        return parsed;
+      }
+      if (option == "--rotation-moment-partitions") {
+        parsed = ParseInteger(value, &output.rotation_moment_partitions);
+        have_rotation_moment_partitions = true;
+        return parsed;
+      }
+      if (option == "--init-edge-moment-shards") {
+        parsed = ParseInteger(
+            value, &output.initialization_edge_moment_shards);
+        have_initialization_edge_moment_shards = true;
+        return parsed;
+      }
+      if (option == "--train-edge-moment-shards") {
+        parsed = ParseInteger(value, &output.training_edge_moment_shards);
+        have_training_edge_moment_shards = true;
+        return parsed;
+      }
+      if (option == "--cuda-device") {
+        parsed = ParseInteger(value, &output.cuda_device);
+        have_device = true;
+        return parsed;
+      }
+      if (option == "--use-cuda") {
+        parsed = ParseBool(value, &output.use_cuda);
+        have_use_cuda = true;
+        return parsed;
+      }
+      if (option == "--gpu-norm-enable") {
+        parsed = ParseBool(value, &output.gpu_norm_enable);
+        return parsed;
+      }
+      if (option == "--train-block-rows") {
+        parsed = ParseInteger(value, &output.training_block_rows);
+        have_training_block_rows = true;
+        return parsed;
+      }
+      if (option == "--base-block-rows") {
+        parsed = ParseInteger(value, &output.base_block_rows);
+        have_base_block_rows = true;
+        return parsed;
+      }
+      if (option == "--cids-per-bucket") {
+        parsed = ParseInteger(value, &output.cids_per_bucket);
+        have_cids_per_bucket = true;
+        return parsed;
+      }
+      if (option == "--bucket-flush-mib") {
+        parsed = ParseInteger(value, &output.bucket_flush_mebibytes);
+        return parsed;
+      }
+      if (option == "--cleanup-enabled") {
+        parsed = ParseBool(value, &output.cleanup.enabled);
+        return parsed;
+      }
+      if (option == "--cleanup-preset") {
+        parsed = ParseCleanupPreset(value, &output.cleanup.preset);
+        return parsed;
+      }
+      if (option == "--cleanup-keep-base-basic") {
+        parsed = ParseInteger(value, &output.cleanup.keep_base_basic);
+        return parsed;
+      }
+      if (option == "--cleanup-keep-base-basic-cluster-id") {
+        parsed = ParseInteger(
+            value, &output.cleanup.keep_base_basic_cluster_id);
+        return parsed;
+      }
+      if (option == "--cleanup-keep-base-basic-ivf-lists") {
+        parsed = ParseInteger(
+            value, &output.cleanup.keep_base_basic_ivf_lists);
+        return parsed;
+      }
+      if (option == "--cleanup-keep-base-list") {
+        parsed = ParseInteger(value, &output.cleanup.keep_base_list);
+        return parsed;
+      }
+      if (option == "--cleanup-keep-base-list-raw") {
+        parsed = ParseInteger(value, &output.cleanup.keep_base_list_raw);
+        return parsed;
+      }
+      if (option == "--cleanup-keep-linkage-list-f32") {
+        parsed = ParseInteger(
+            value, &output.cleanup.keep_linkage_list_f32);
+        return parsed;
+      }
+      if (option == "--cleanup-keep-linkage-parent-u32") {
+        parsed = ParseInteger(
+            value, &output.cleanup.keep_linkage_parent_u32);
+        return parsed;
+      }
+      if (option == "--base-linkage-store-coefficients-f32") {
+        parsed = ParseBool(
+            value, &output.base_linkage_store_coefficients_f32);
+        return parsed;
+      }
+      if (option == "--basic-inflight-blocks") {
+        parsed = ParseInteger(value, &output.basic_inflight_blocks);
+        have_basic_inflight_blocks = true;
+        return parsed;
+      }
+      if (option == "--basic-async-io-enabled") {
+        parsed = ParseBool(value, &output.basic_async_io_enabled);
+        have_basic_async_io_enabled = true;
+        return parsed;
+      }
+      if (option == "--basic-async-io-depth") {
+        parsed = ParseInteger(value, &output.basic_async_io_depth);
+        have_basic_async_io_depth = true;
+        return parsed;
+      }
+      if (option == "--basic-async-io-mib") {
+        parsed = ParseInteger(value, &output.basic_async_io_mebibytes);
+        have_basic_async_io_mebibytes = true;
+        return parsed;
+      }
+      if (option == "--basic-async-write-enabled") {
+        parsed = ParseBool(value, &output.basic_async_write_enabled);
+        have_basic_async_write_enabled = true;
+        return parsed;
+      }
+      if (option == "--basic-async-write-depth") {
+        parsed = ParseInteger(value, &output.basic_async_write_depth);
+        have_basic_async_write_depth = true;
+        return parsed;
+      }
+      if (option == "--basic-async-write-mib") {
+        parsed = ParseInteger(value, &output.basic_async_write_mebibytes);
+        have_basic_async_write_mebibytes = true;
+        return parsed;
+      }
+      if (option == "--cuda-mode") {
+        if (value == "fast") {
+          output.cuda_mode = CudaMode::kFast;
+        } else if (value == "strict") {
+          output.cuda_mode = CudaMode::kStrict;
+        } else {
+          parsed = false;
+        }
+        have_cuda_mode = true;
+        return parsed;
+      }
+      if (option == "--cuda-allow-tf32") {
+        parsed = ParseBool(value, &output.requested_cuda_allow_tf32);
+        have_cuda_allow_tf32 = true;
+        return parsed;
+      }
+      if (option == "--root-score-buffer-mib") {
+        parsed = ParseInteger(value, &output.root_score_buffer_mebibytes);
+        have_root_score_buffer = true;
+        return parsed;
+      }
+      if (option == "--root-normalized-cache-mib") {
+        parsed = ParseInteger(
+            value, &output.root_normalized_cache_mebibytes);
+        have_root_normalized_cache = true;
+        return parsed;
+      }
+      if (option == "--linkage-large-root-xc0-chunk-mib") {
+        parsed = ParseInteger(
+            value, &output.linkage_large_root_xc0_chunk_mebibytes);
+        have_linkage_xc0_chunk = true;
+        return parsed;
+      }
+      if (option == "--linkage-large-root-workspace-mib") {
+        parsed = ParseInteger(
+            value, &output.linkage_large_root_workspace_mebibytes);
+        have_linkage_workspace = true;
+        return parsed;
+      }
+      if (option == "--init-linkage-large-root-xc0-chunk-mib") {
+        parsed = ParseInteger(
+            value, &output.init_linkage_large_root_xc0_chunk_mebibytes);
+        have_init_linkage_xc0_chunk = true;
+        return parsed;
+      }
+      if (option == "--init-linkage-large-root-workspace-mib") {
+        parsed = ParseInteger(
+            value, &output.init_linkage_large_root_workspace_mebibytes);
+        have_init_linkage_workspace = true;
+        return parsed;
+      }
+      if (option == "--linkage-chunk-max-pairs") {
+        parsed = ParseInteger(value, &output.linkage_chunk_max_pairs);
+        return parsed;
+      }
+      if (option == "--init-linkage-chunk-max-pairs") {
+        parsed = ParseInteger(value, &output.init_linkage_chunk_max_pairs);
+        return parsed;
+      }
+      if (option == "--coefficient-quantile") {
+        double candidate = 0.0;
+        parsed = ParseDouble(value, &candidate) && candidate > 0.0 &&
+            candidate <= 1.0;
+        if (parsed) {
+          output.coefficient_first_magnitude_quantiles = {candidate};
+          output.coefficient_rest_magnitude_quantiles = {candidate};
+        }
+        have_coefficient_first_quantiles = true;
+        have_coefficient_rest_quantiles = true;
+        return parsed;
+      }
+      if (option == "--coefficient-p-first-candidates") {
+        parsed = ParsePercentCandidates(
+            value, &output.coefficient_first_magnitude_quantiles);
+        have_coefficient_first_quantiles = true;
+        return parsed;
+      }
+      if (option == "--coefficient-p-rest-candidates") {
+        parsed = ParsePercentCandidates(
+            value, &output.coefficient_rest_magnitude_quantiles);
+        have_coefficient_rest_quantiles = true;
+        return parsed;
+      }
+      if (option == "--coefficient-codec-enabled") {
+        parsed = ParseBool(value, &output.coefficient_codec_enabled);
+        return parsed;
+      }
+      if (option == "--coefficient-weighted-quantile") {
+        parsed = ParseBool(value, &output.coefficient_weighted_quantile);
+        return parsed;
+      }
+      if (option == "--coefficient-allow-clipping") {
+        parsed = ParseBool(value, &output.coefficient_allow_clipping);
+        return parsed;
+      }
+      if (option == "--coefficient-fit-scale") {
+        parsed = ParseBool(value, &output.coefficient_fit_scale);
+        return parsed;
+      }
+      if (option == "--coefficient-refinement-sweeps") {
+        parsed = ParseInteger(value, &output.coefficient_refinement_sweeps);
+        return parsed;
+      }
+      if (option == "--coefficient-refinement-max-layer") {
+        parsed = ParseInteger(value, &output.coefficient_refinement_max_layer);
+        return parsed;
+      }
+      if (option == "--coefficient-refinement-step-limit") {
+        parsed = ParseInteger(value, &output.coefficient_refinement_step_limit);
+        return parsed;
+      }
+      if (option == "--coefficient-bits-per-layer") {
+        parsed = ParseU32List(value, &output.coefficient_bits_per_layer);
+        return parsed;
+      }
+      if (option == "--coefficient-bits-per-layer-root") {
+        parsed = ParseU32List(value, &output.coefficient_bits_per_layer_root);
+        return parsed;
+      }
+      if (option == "--coefficient-bits-per-layer-linkage") {
+        parsed = ParseU32List(value, &output.coefficient_bits_per_layer_linkage);
+        return parsed;
+      }
+      if (option == "--disk-norm2-mode") {
+        output.eval_disk_norm2_mode = value;
+        parsed = value == "lut" || value == "exact";
+        return parsed;
+      }
+      if (option == "--norm8-mode") {
+        parsed = ParseNorm8Mode(value, &output.norm8_mode);
+        return parsed;
+      }
+      if (option == "--norm8-lloyd-iterations") {
+        parsed = ParseInteger(value, &output.norm8_lloyd_iterations);
+        have_norm8_iterations = true;
+        return parsed;
+      }
+      if (option == "--base-eval-enabled") {
+        parsed = ParseBool(value, &output.eval_base_enabled);
+        return parsed;
+      }
+      if (option == "--base-eval-use-ivf") {
+        parsed = ParseBool(value, &output.eval_base_use_ivf);
+        return parsed;
+      }
+      if (option == "--base-eval-nprobe") {
+        parsed = ParseInteger(value, &output.eval_base_nprobe);
+        return parsed;
+      }
+      if (option == "--base-eval-warmup") {
+        parsed = ParseInteger(value, &output.eval_base_warmup);
+        return parsed;
+      }
+      if (option == "--base-eval-repeat") {
+        parsed = ParseInteger(value, &output.eval_base_repeat);
+        return parsed;
+      }
+      if (option == "--linkage-eval-enabled") {
+        parsed = ParseBool(value, &output.eval_linkage_enabled);
+        return parsed;
+      }
+      if (option == "--eval-modes") {
+        parsed = ParseEvalRepresentations(
+            value, &output.eval_representations_auto,
+            &output.eval_representations);
+        return parsed;
+      }
+      if (option == "--eval-score-mode") {
+        parsed = value == "l2" || value == "cosine_recon" ||
+                 value == "mips_recon";
+        if (parsed) output.eval_score_mode = value;
+        return parsed;
+      }
+      if (option == "--topology-inflight-clusters") {
+        parsed = ParseInteger(value, &output.topology_inflight_clusters);
+        have_topology_inflight = true;
+        return parsed;
+      }
+      if (option == "--linkage-async-io-enabled") {
+        parsed = ParseBool(value, &output.linkage_async_io_enabled);
+        have_linkage_async_io_enabled = true;
+        return parsed;
+      }
+      if (option == "--linkage-async-io-depth") {
+        parsed = ParseInteger(value, &output.linkage_async_io_depth);
+        have_linkage_async_io_depth = true;
+        return parsed;
+      }
+      if (option == "--linkage-scheduler-enabled") {
+        parsed = ParseBool(value, &output.linkage_scheduler_enabled);
+        return parsed;
+      }
+      if (option ==
+                 "--linkage-scheduler-transport-batching-enabled") {
+        parsed = ParseBool(
+            value, &output.linkage_scheduler_transport_batching_enabled);
+        return parsed;
+      }
+      if (option == "--linkage-scheduler-stable") {
+        parsed = ParseBool(value, &output.linkage_scheduler_stable);
+        return parsed;
+      }
+      if (option == "--linkage-direct-pool-size") {
+        parsed = ParseInteger(value, &output.linkage_direct_pool_size);
+        return parsed;
+      }
+      if (option == "--init-linkage-direct-pool-size") {
+        parsed = ParseInteger(
+            value, &output.initialization_linkage_direct_pool_size);
+        return parsed;
+      }
+      if (option == "--linkage-eval-async-pinned-mib") {
+        parsed = ParseInteger(
+            value, &output.linkage_eval_async_pinned_mebibytes);
+        return parsed;
+      }
+      if (option == "--init-linkage-eval-async-pinned-mib") {
+        parsed = ParseInteger(
+            value,
+            &output.initialization_linkage_eval_async_pinned_mebibytes);
+        return parsed;
+      }
+      if (option == "--linkage-scheduler-workers") {
+        parsed = ParseInteger(value, &output.linkage_scheduler_workers);
+        have_linkage_scheduler_workers = true;
+        return parsed;
+      }
+      if (option == "--linkage-scheduler-queue-capacity") {
+        parsed = ParseInteger(
+            value, &output.linkage_scheduler_queue_capacity);
+        have_linkage_scheduler_queue = true;
+        return parsed;
+      }
+      if (option == "--linkage-rfull-cache-buffers") {
+        parsed = ParseInteger(value, &output.linkage_rfull_cache_buffers);
+        have_linkage_cache_buffers = true;
+        return parsed;
+      }
+      if (option == "--linkage-rfull-cache-mib") {
+        parsed = ParseInteger(value, &output.linkage_rfull_cache_mebibytes);
+        have_linkage_cache_mebibytes = true;
+        return parsed;
+      }
+      if (option == "--linkage-safety-reserve-mib") {
+        parsed = ParseInteger(
+            value, &output.linkage_safety_reserve_mebibytes);
+        have_linkage_safety_reserve = true;
+        return parsed;
+      }
+      if (option == "--linkage-inner-batch-rows") {
+        parsed = ParseInteger(value, &output.linkage_inner_batch_rows);
+        have_linkage_inner_rows = true;
+        return parsed;
+      }
+      if (option == "--linkage-max-batch-pairs") {
+        parsed = ParseInteger(value, &output.linkage_max_batch_pairs);
+        have_linkage_max_pairs = true;
+        return parsed;
+      }
+      if (option == "--linkage-init-max-batch-pairs") {
+        parsed = ParseInteger(value, &output.linkage_init_max_batch_pairs);
+        have_linkage_init_max_pairs = true;
+        return parsed;
+      }
+      if (option == "--linkage-many-nodes-preflush-target-pairs") {
+        parsed = ParseInteger(
+            value, &output.linkage_many_nodes_preflush_target_pairs);
+        have_linkage_many_nodes_preflush_pairs = true;
+        return parsed;
+      }
+      if (option == "--linkage-same-layer-block-rows") {
+        parsed = ParseInteger(value, &output.linkage_same_layer_block_rows);
+        have_linkage_same_block_rows = true;
+        return parsed;
+      }
+      if (option == "--linkage-same-layer-minimum-pairs") {
+        parsed = ParseInteger(
+            value, &output.linkage_same_layer_minimum_pairs);
+        have_linkage_same_minimum_pairs = true;
+        return parsed;
+      }
+      if (option == "--linkage-same-layer-window-maximum-pairs") {
+        parsed = ParseInteger(
+            value, &output.linkage_same_layer_window_maximum_pairs);
+        have_linkage_same_window_maximum_pairs = true;
+        return parsed;
+      }
+      if (option == "--linkage-same-layer-maximum-pending-nodes") {
+        parsed = ParseInteger(
+            value, &output.linkage_same_layer_maximum_pending_nodes);
+        have_linkage_same_maximum_pending_nodes = true;
+        return parsed;
+      }
+      if (option == "--linkage-same-layer-preflush-target-pairs") {
+        parsed = ParseInteger(
+            value, &output.linkage_same_layer_preflush_target_pairs);
+        have_linkage_same_preflush_pairs = true;
+        return parsed;
+      }
+      if (option == "--linkage-same-layer-preflush-target-nodes") {
+        parsed = ParseInteger(
+            value, &output.linkage_same_layer_preflush_target_nodes);
+        have_linkage_same_preflush_nodes = true;
+        return parsed;
+      }
+      if (option == "--linkage-tiny-forced-pair-limit") {
+        parsed = ParseInteger(value, &output.linkage_tiny_forced_pair_limit);
+        have_linkage_tiny_limit = true;
+        return parsed;
+      }
+      if (option == "--linkage-tiny-forced-cpu-enabled") {
+        parsed = ParseBool(value, &output.linkage_tiny_forced_cpu_enabled);
+        return parsed;
+      }
+      if (option == "--init-linkage-tiny-forced-cpu-enabled") {
+        parsed = ParseBool(
+            value, &output.initialization_linkage_tiny_forced_cpu_enabled);
+        return parsed;
+      }
+      if (option == "--linkage-tiny-forced-node-limit") {
+        parsed = ParseInteger(value, &output.linkage_tiny_forced_node_limit);
+        return parsed;
+      }
+      if (option == "--linkage-single-gpu-min-candidates") {
+        parsed = ParseInteger(
+            value, &output.linkage_single_gpu_min_candidates);
+        return parsed;
+      }
+      if (option == "--linkage-single-gpu-max-candidates") {
+        parsed = ParseInteger(
+            value, &output.linkage_single_gpu_max_candidates);
+        return parsed;
+      }
+      if (option ==
+                 "--linkage-same-layer-single-gpu-min-candidates") {
+        parsed = ParseInteger(
+            value, &output.linkage_same_layer_single_gpu_min_candidates);
+        return parsed;
+      }
+      if (option == "--linkage-bad-window-rows") {
+        parsed = ParseInteger(value, &output.linkage_bad_window_rows);
+        have_linkage_bad_window_rows = true;
+        return parsed;
+      }
+      if (option == "--linkage-bad-window-maximum-pairs") {
+        parsed = ParseInteger(value, &output.linkage_bad_window_maximum_pairs);
+        have_linkage_bad_window_max_pairs = true;
+        return parsed;
+      }
+      if (option == "--final-spool-window-clusters") {
+        parsed = ParseInteger(value, &output.final_spool_window_clusters);
+        have_final_spool_clusters = true;
+        return parsed;
+      }
+      if (option == "--final-spool-window-real-rows") {
+        parsed = ParseInteger(value, &output.final_spool_window_real_rows);
+        have_final_spool_rows = true;
+        return parsed;
+      }
+      return std::nullopt;
+    }();
+    if (!parsed_option.has_value()) {
       return InvalidCommand("unknown option " + std::string(option));
     }
-    if (!parsed) {
+    if (!*parsed_option) {
       return InvalidCommand("invalid value for " + std::string(option));
     }
   }
 
+  if (const Status status = ResolveRuntimeCudaExecutionPolicy(
+          output.use_cuda, output.gpu_norm_enable); !status.ok()) {
+    return status;
+  }
   if (output.eval_only) {
     output.train_enabled = false;
     output.base_encode_enabled = false;

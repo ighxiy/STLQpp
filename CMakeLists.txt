@@ -67,12 +67,18 @@ target_link_libraries(stlqpp_runtime_telemetry PUBLIC STLQpp::core)
 stlqpp_configure_target(stlqpp_runtime_telemetry)
 
 add_library(stlqpp_application_support STATIC
+    src/application/compute_backend.cpp
     src/application/run_session.cpp
     src/application/sha256.cpp)
 add_library(STLQpp::application_support ALIAS stlqpp_application_support)
 target_link_libraries(stlqpp_application_support
     PUBLIC STLQpp::runtime_telemetry STLQpp::core)
 stlqpp_configure_target(stlqpp_application_support)
+target_compile_definitions(stlqpp_application_support PRIVATE
+    STLQPP_HAS_CUDA_RUNTIME=$<BOOL:${STLQpp_CUDA_AVAILABLE}>)
+if(STLQpp_CUDA_AVAILABLE)
+  target_link_libraries(stlqpp_application_support PRIVATE CUDA::cudart)
+endif()
 
 if(STLQpp_CUDA_AVAILABLE)
   add_library(stlqpp_runtime_cuda STATIC
@@ -126,6 +132,7 @@ target_link_libraries(stlqpp_search_avx2
     PUBLIC STLQpp::storage STLQpp::model STLQpp::core)
 stlqpp_configure_target(stlqpp_search_avx2)
 if(MSVC)
+  target_compile_definitions(stlqpp_search_avx2 PRIVATE _HAS_EXCEPTIONS=0)
   target_compile_options(stlqpp_search_avx2 PRIVATE /arch:AVX2 /GR- /EHs-c-)
 else()
   target_compile_options(stlqpp_search_avx2 PRIVATE
@@ -172,6 +179,7 @@ add_library(stlqpp_training_basic_avx2 STATIC
 target_link_libraries(stlqpp_training_basic_avx2 PUBLIC STLQpp::core)
 stlqpp_configure_target(stlqpp_training_basic_avx2)
 if(MSVC)
+  target_compile_definitions(stlqpp_training_basic_avx2 PRIVATE _HAS_EXCEPTIONS=0)
   target_compile_options(stlqpp_training_basic_avx2 PRIVATE
       /arch:AVX2 /GR- /EHs-c-)
 else()
@@ -218,6 +226,7 @@ add_library(stlqpp_training_linkage_avx2 STATIC
 target_link_libraries(stlqpp_training_linkage_avx2 PUBLIC STLQpp::core)
 stlqpp_configure_target(stlqpp_training_linkage_avx2)
 if(MSVC)
+  target_compile_definitions(stlqpp_training_linkage_avx2 PRIVATE _HAS_EXCEPTIONS=0)
   target_compile_options(stlqpp_training_linkage_avx2 PRIVATE
       /arch:AVX2 /GR- /EHs-c-)
 else()
@@ -671,7 +680,7 @@ add_library(stlqpp_build_command STATIC
 target_include_directories(stlqpp_build_command
     PUBLIC applications/build)
 target_link_libraries(stlqpp_build_command
-    PUBLIC STLQpp::core PRIVATE STLQpp::storage)
+    PUBLIC STLQpp::core STLQpp::application_support PRIVATE STLQpp::storage)
 stlqpp_configure_target(stlqpp_build_command)
 
 if(STLQpp_CBLAS_AVAILABLE AND STLQpp_OPENMP_AVAILABLE)
@@ -719,6 +728,11 @@ endif()
 if(TARGET stlqpp_application)
   target_link_libraries(stlqpp_application
       PUBLIC stlqpp_source_norm_provider)
+endif()
+
+if(WIN32 AND TARGET stlqpp_build_index)
+  # Hashed cache generations can exceed the legacy MAX_PATH limit.
+  target_sources(stlqpp_build_index PRIVATE applications/stlqpp.manifest)
 endif()
 
 add_library(stlqpp_scaled_score8_derivation STATIC

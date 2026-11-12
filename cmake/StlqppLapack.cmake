@@ -72,6 +72,32 @@ function(stlqpp_configure_lapack)
         HINTS "${STLQpp_OPENBLAS_ROOT}" PATH_SUFFIXES lib)
     find_library(STLQpp_LAPACK_OPENBLAS_LIBRARY openblas
         HINTS "${STLQpp_OPENBLAS_ROOT}" PATH_SUFFIXES lib)
+    # Windows OpenBLAS distributions commonly export LAPACKE from openblas
+    # itself instead of shipping a separate lapacke import library.
+    if(STLQpp_LAPACKE_INCLUDE_DIR AND STLQpp_LAPACK_OPENBLAS_LIBRARY AND
+       NOT STLQpp_LAPACKE_LIBRARY)
+      include(CheckCXXSourceCompiles)
+      set(CMAKE_REQUIRED_INCLUDES "${STLQpp_LAPACKE_INCLUDE_DIR}")
+      set(CMAKE_REQUIRED_LIBRARIES "${STLQpp_LAPACK_OPENBLAS_LIBRARY}")
+      if(MSVC)
+        set(CMAKE_REQUIRED_DEFINITIONS -DHAVE_LAPACK_CONFIG_H -D_CRT_USE_C_COMPLEX_H)
+      endif()
+      check_cxx_source_compiles("
+        #include <lapacke.h>
+        int main() {
+          float s = 1.0f;
+          double d = 1.0;
+          return LAPACKE_spotrf(LAPACK_COL_MAJOR, 'U', 1, &s, 1) +
+              LAPACKE_spotrs(LAPACK_COL_MAJOR, 'U', 1, 1, &s, 1, &s, 1) +
+              LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'U', 1, &d, 1) +
+              LAPACKE_dpotrs(LAPACK_COL_MAJOR, 'U', 1, 1, &d, 1, &d, 1) +
+              LAPACKE_dgesvd(LAPACK_COL_MAJOR, 'N', 'N', 1, 1,
+                  &d, 1, &d, &d, 1, &d, 1, &d);
+        }" STLQpp_OPENBLAS_HAS_LAPACKE)
+      if(STLQpp_OPENBLAS_HAS_LAPACKE)
+        set(STLQpp_LAPACKE_LIBRARY "${STLQpp_LAPACK_OPENBLAS_LIBRARY}")
+      endif()
+    endif()
     if(STLQpp_LAPACKE_INCLUDE_DIR AND STLQpp_LAPACKE_LIBRARY AND
        STLQpp_LAPACK_OPENBLAS_LIBRARY)
       add_library(stlqpp_runtime_lapack STATIC
@@ -81,6 +107,11 @@ function(stlqpp_configure_lapack)
       add_library(STLQpp::runtime_lapack ALIAS stlqpp_runtime_lapack)
       target_include_directories(stlqpp_runtime_lapack PRIVATE
           "${STLQpp_LAPACKE_INCLUDE_DIR}")
+      if(MSVC)
+        # Select LAPACKE's MSVC complex types instead of C99 _Complex.
+        target_compile_definitions(stlqpp_runtime_lapack PRIVATE
+            HAVE_LAPACK_CONFIG_H _CRT_USE_C_COMPLEX_H)
+      endif()
       target_link_libraries(stlqpp_runtime_lapack
           PUBLIC STLQpp::core
           PRIVATE "${STLQpp_LAPACKE_LIBRARY}"

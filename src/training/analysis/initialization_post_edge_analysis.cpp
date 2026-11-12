@@ -213,100 +213,10 @@ AnalyzeInitializationAfterEdgeUpdate<5>(
     const TrainingModel<5>&,
     const RootToEdgeCodeMap&, const ParallelForExecutor&);
 template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<2>(
-    const BaseListReader<2>&,
-    const RootOnlyInitializationTranscript<2>&,
-    const TrainingModel<2>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<3>(
-    const BaseListReader<3>&,
-    const RootOnlyInitializationTranscript<3>&,
-    const TrainingModel<3>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<4>(
-    const BaseListReader<4>&,
-    const RootOnlyInitializationTranscript<4>&,
-    const TrainingModel<4>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<7>(
-    const BaseListReader<7>&,
-    const RootOnlyInitializationTranscript<7>&,
-    const TrainingModel<7>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<8>(
-    const BaseListReader<8>&,
-    const RootOnlyInitializationTranscript<8>&,
-    const TrainingModel<8>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<9>(
-    const BaseListReader<9>&,
-    const RootOnlyInitializationTranscript<9>&,
-    const TrainingModel<9>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<11>(
-    const BaseListReader<11>&,
-    const RootOnlyInitializationTranscript<11>&,
-    const TrainingModel<11>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
 AnalyzeInitializationAfterEdgeUpdate<12>(
     const BaseListReader<12>&,
     const RootOnlyInitializationTranscript<12>&,
     const TrainingModel<12>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<13>(
-    const BaseListReader<13>&,
-    const RootOnlyInitializationTranscript<13>&,
-    const TrainingModel<13>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<14>(
-    const BaseListReader<14>&,
-    const RootOnlyInitializationTranscript<14>&,
-    const TrainingModel<14>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<15>(
-    const BaseListReader<15>&,
-    const RootOnlyInitializationTranscript<15>&,
-    const TrainingModel<15>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<16>(
-    const BaseListReader<16>&,
-    const RootOnlyInitializationTranscript<16>&,
-    const TrainingModel<16>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<17>(
-    const BaseListReader<17>&,
-    const RootOnlyInitializationTranscript<17>&,
-    const TrainingModel<17>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<18>(
-    const BaseListReader<18>&,
-    const RootOnlyInitializationTranscript<18>&,
-    const TrainingModel<18>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<19>(
-    const BaseListReader<19>&,
-    const RootOnlyInitializationTranscript<19>&,
-    const TrainingModel<19>&,
-    const RootToEdgeCodeMap&, const ParallelForExecutor&);
-template StatusOr<InitializationPostEdgeAnalysis>
-AnalyzeInitializationAfterEdgeUpdate<20>(
-    const BaseListReader<20>&,
-    const RootOnlyInitializationTranscript<20>&,
-    const TrainingModel<20>&,
     const RootToEdgeCodeMap&, const ParallelForExecutor&);
 template StatusOr<InitializationPostEdgeAnalysis>
 AnalyzeInitializationAfterEdgeUpdate<6>(

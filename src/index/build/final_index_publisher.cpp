@@ -518,6 +518,9 @@ static Status PublishPreparedClusterSpoolImpl(
     }
     const double payload_seconds = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - payload_begin).count();
+    // All payloads have been consumed. Release mappings before adopting and
+    // renaming the spool directory; Windows cannot move mapped descendants.
+    spool = PreparedClusterSpoolStorage{};
     const auto commit_begin = std::chrono::steady_clock::now();
     if (const Status status = writer.Commit(&completed.canonical);
         !status.ok()) {

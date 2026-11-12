@@ -377,7 +377,7 @@ StatusOr<TrainingInitializationResult<M>> InitializeFastLinkage(
   summary.bad_clusters.emplace(sink.BadClusters(request.good_cluster_fraction));
   auto& bad_clusters = *summary.bad_clusters;
   if (!request.virtual_enabled) {
-    std::fill(bad_clusters.mask.begin(), bad_clusters.mask.end(), 0U);
+    std::fill(bad_clusters.mask.begin(), bad_clusters.mask.end(), std::uint8_t{0});
   }
   const auto resources = context.value()->resource_statistics();
   context.value().reset();
@@ -514,7 +514,7 @@ StatusOr<TrainingInitializationResult<M>> FinishInitialization(
   summary.bad_clusters.emplace(std::move(bad_clusters).value());
   if (!request.virtual_enabled) {
     std::fill(summary.bad_clusters->mask.begin(),
-              summary.bad_clusters->mask.end(), 0U);
+              summary.bad_clusters->mask.end(), std::uint8_t{0});
   }
   summary.timing.bad_mask_wall_seconds = ElapsedSeconds(bad_mask_begin);
   ReportRootOnlyBadClusters(summary, request.log_metrics);

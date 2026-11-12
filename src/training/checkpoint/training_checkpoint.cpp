@@ -585,9 +585,11 @@ StatusOr<TrainingCheckpointWriter<M>> TrainingCheckpointWriter<M>::Create(
   if (const Status status = request.shape.Validate(); !status.ok()) {
     return status;
   }
-  if (M != 0 && request.shape.m != static_cast<std::uint32_t>(M)) {
-    return Status::InvalidArgument(
-        "training checkpoint shape disagrees with fixed M");
+  if constexpr (M != 0) {
+    if (request.shape.m != static_cast<std::uint32_t>(M)) {
+      return Status::InvalidArgument(
+          "training checkpoint shape disagrees with fixed M");
+    }
   }
   if (request.bad_cluster_mask.size() != request.shape.nlist) {
     return Status::InvalidArgument(

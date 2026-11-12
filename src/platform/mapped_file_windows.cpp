@@ -1,6 +1,8 @@
 #include "stlqpp/platform/mapped_file.h"
 
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 #include <limits>
@@ -52,7 +54,10 @@ ReadOnlyMappedFile::ReadOnlyMappedFile(std::unique_ptr<State> state) noexcept
 StatusOr<ReadOnlyMappedFile> ReadOnlyMappedFile::Open(
     const std::filesystem::path& path) {
   auto state = std::make_unique<State>();
-  state->file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+  // Permit concurrent flush handles and file replacement, as POSIX opens do.
+  // Publication releases mapped views before moving the containing directory.
+  state->file = CreateFileW(path.c_str(), GENERIC_READ,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                             nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
                             nullptr);
   if (state->file == INVALID_HANDLE_VALUE) {

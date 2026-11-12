@@ -7,7 +7,9 @@
 #include "stlqpp/model/codec/coefficient_bit_width.h"
 #include "stlqpp/platform/staging_directory.h"
 #include "stlqpp/storage/canonical_index_files.h"
-#if defined(__linux__)
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__linux__)
 #include <fcntl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -122,6 +124,8 @@ Status SharePublishedNorm2Cache(const std::filesystem::path& staged,
   std::ifstream metadata(staged / relative / "config.txt");
   const std::string config((std::istreambuf_iterator<char>(metadata)), {});
   if (!metadata) return Status::DataLoss("shared norm2 recipe metadata is missing");
+  metadata.close();
+  if (!metadata) return Status::DataLoss("cannot close shared norm2 recipe metadata");
   const std::string content = "norm-family-v2\n" + config;
 
   auto family = source_owner / relative.parent_path() /
@@ -208,7 +212,13 @@ Status SharePublishedNorm2Cache(const std::filesystem::path& staged,
             "shared norm2 cache is incomplete; cache was not overwritten");
       std::filesystem::create_directories(target.parent_path(), error);
       if (error) return Status::Internal("cannot create norm2 scale directory: " + error.message());
-#if defined(__linux__)
+#if defined(_WIN32)
+      if (!MoveFileExW((staged / shard->relative_path).c_str(), target.c_str(),
+                       MOVEFILE_WRITE_THROUGH))
+        return Status::FailedPrecondition(
+            "cannot publish norm2 scale without replacing a file: " +
+            std::to_string(GetLastError()));
+#elif defined(__linux__)
       if (syscall(SYS_renameat2, AT_FDCWD,
                   (staged / shard->relative_path).c_str(), AT_FDCWD,
                   target.c_str(), RENAME_NOREPLACE) != 0)

@@ -43,8 +43,11 @@ class RootCodebooks final {
 
   [[nodiscard]] const ModelShape& shape() const noexcept { return shape_; }
   [[nodiscard]] std::uint32_t m() const noexcept {
-    if constexpr (M != 0) return M;
-    return shape_.m;
+    if constexpr (M != 0) {
+      return M;
+    } else {
+      return shape_.m;
+    }
   }
   [[nodiscard]] RuntimeRootCodebookView runtime_view() const noexcept {
     return {shape_, root0(), root_small_flat()};

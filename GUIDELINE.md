@@ -4,8 +4,8 @@ Run the following commands from the repository root. See the
 [README](README.md) for CPU-only builds, model reuse, checkpoints, and measurement
 interpretation.
 
-## 0. Pending
-Unlike STLQ, STLQ++ has not been tested on Windows system (only Linux now), and OpenBlas has not been tested yet. Maybe later.
+For Windows, follow the [MSVC build and run guide](docs/WINDOWS.md).
+It covers CPU and CUDA builds with either oneMKL or OpenBLAS.
 
 ## 1. Build
 
@@ -85,7 +85,7 @@ Each probe is measured in this invocation. Native result files are written to
 | Basic recall | `eval.base.enabled=true` during a run retaining/building basic codes |
 | Keep basic codes for another linkage recipe | `large.cleanup.preset="dev_all"` |
 | Lower GPU memory use | Reduce both CUDA pool sizes, then block/cache sizes. |
-| Run entirely on CPU | CPU build, `runtime.use_cuda=false`, `eval.linkage.gpu_norm_enable=false` |
+| Run entirely on CPU | Use a CPU build, or set `runtime.use_cuda=false` in a CUDA build. |
 
 See [CONFIGURATION.md](docs/CONFIGURATION.md) for the exact resource keys and
 [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for common setup problems.

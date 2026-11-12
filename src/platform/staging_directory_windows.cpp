@@ -1,6 +1,8 @@
 #include "stlqpp/platform/staging_directory.h"
 
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 #include <random>
@@ -115,7 +117,8 @@ StatusOr<StagingDirectory> StagingDirectory::CreateImpl(
       break;
     }
     if (error) {
-      return Status::Internal("failed to create sibling staging directory");
+      return Status::Internal("failed to create sibling staging directory " +
+                              candidate.string() + ": " + error.message());
     }
   }
   if (state->staging.empty()) {

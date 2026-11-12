@@ -42,17 +42,19 @@ materialized parent array. The search index itself is still resident in memory.
 
 Resource changes should be saved with the effective cfg when collecting results.
 
-## CUDA is disabled but norm preparation still requests a GPU
+## Select CPU execution
 
-Training/encoding and norm preparation have separate switches. For a CPU run use:
+CPU builds automatically use CPU execution and CPU norm preparation. To select
+CPU execution in a CUDA build, set:
 
 ```ini
 runtime.use_cuda = false
-eval.linkage.gpu_norm_enable = false
 ```
 
-When prepared norm/scale caches already exist, evaluation reuses them and may
-perform no new GPU work even when GPU norm preparation is selected. Query scanning
+CUDA builds also select CPU execution when no CUDA device is visible.
+
+With CUDA enabled, `eval.linkage.gpu_norm_enable` selects the norm preparation
+backend. Prepared norm/scale caches are reused during evaluation. Query scanning
 runs on the CPU.
 
 ## File not found, wrong split, or unexpected output location

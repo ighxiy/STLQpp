@@ -153,8 +153,10 @@ InitializedTrainingCheckpoint<M>::Open(
   auto runtime = OpenRuntimeInitializedModel({directory, expected_identity});
   if (!runtime.ok()) return runtime.status();
   const auto& source = runtime.value().model;
-  if (M != 0 && source.shape().m != M)
-    return Status::FailedPrecondition("initialized checkpoint M changed");
+  if constexpr (M != 0) {
+    if (source.shape().m != M)
+      return Status::FailedPrecondition("initialized checkpoint M changed");
+  }
   ProductCodebookView<M> view;
   view.shape = source.shape();
   if constexpr (M == 0) {

@@ -44,10 +44,11 @@ class LinkageSupportLeastSquares final {
       return NormalEquationSquaredCost(algebra, support, atom_dots,
                                        coefficients, residual_squared_norm,
                                        applied_diagonal_bump);
+    } else {
+      (void)applied_diagonal_bump;
+      return SquaredCost(algebra, support, atom_dots, coefficients,
+                         residual_squared_norm);
     }
-    (void)applied_diagonal_bump;
-    return SquaredCost(algebra, support, atom_dots, coefficients,
-                       residual_squared_norm);
   }
 };
 

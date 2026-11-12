@@ -1,4 +1,5 @@
 #include "stlqpp/application/eval_norm_cache.h"
+#include "stlqpp/application/compute_backend.h"
 
 #include "stlqpp/application/sha256.h"
 #include "stlqpp/core/numeric/little_endian.h"
@@ -25,7 +26,9 @@
 #include "stlqpp/platform/staging_directory.h"
 #include "stlqpp/storage/canonical_index_files.h"
 #include "stlqpp/storage/canonical_model_codec.h"
-#if defined(__linux__)
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__linux__)
 #include <fcntl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -526,7 +529,13 @@ Status PublishFloatExact(const std::filesystem::path& directory,
     auto status = Write(staged.value().path() / file.first, file.second.data(),
                         file.second.size());
     if (!status.ok()) return status;
-#if defined(__linux__)
+#if defined(_WIN32)
+    if (!MoveFileExW((staged.value().path() / file.first).c_str(),
+                     (directory / file.first).c_str(), MOVEFILE_WRITE_THROUGH))
+      return Status::FailedPrecondition(
+          "cannot publish constant float norm2 without replacing a file: " +
+          std::to_string(GetLastError()));
+#elif defined(__linux__)
     if (syscall(SYS_renameat2, AT_FDCWD,
                 (staged.value().path() / file.first).c_str(), AT_FDCWD,
                 (directory / file.first).c_str(), RENAME_NOREPLACE) != 0)
@@ -546,6 +555,14 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
     const EvalNormCacheRequest& request) {
   try {
     auto r = request;
+    app::ResolveCudaExecutionPolicy(STLQPP_HAS_CUDA_NORM != 0,
+                                    r.cuda_compute_allowed, r.use_cuda);
+    if (r.use_cuda) {
+      if (const Status status = app::ResolveRuntimeCudaExecutionPolicy(
+              r.cuda_compute_allowed, r.use_cuda); !status.ok()) {
+        return status;
+      }
+    }
     if (r.float_norm) {
       r.mode = ReconstructionNorm8Mode::kIdentityLloyd;
       r.iterations = 0U;
@@ -636,10 +653,6 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
     std::optional<Population> population;
     const auto reconstruct = [&]() -> Status {
       if (population) return Status::Ok();
-      if (r.use_cuda && !r.cuda_compute_allowed)
-        return Status::FailedPrecondition(
-            "missing norm2/scale cache requires runtime.use_cuda=true when "
-            "gpu_norm_enable=true");
       auto value = reference_mode ? ReconstructReference(r, files, reference)
                                   : Reconstruct(r, files);
       if (!value.ok()) return value.status();

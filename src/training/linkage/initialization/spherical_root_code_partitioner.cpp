@@ -296,7 +296,7 @@ StatusOr<RootToEdgeCodeMap> SphericalRootCodePartitioner::BuildImpl(
     for (std::uint32_t code = 0U; code < kEdgeCodeCount; ++code) {
       offsets[code + 1U] += offsets[code];
     }
-    cursor = offsets;
+    std::copy(offsets.begin(), offsets.end(), cursor.begin());
     for (std::uint32_t sample = 0U;
          sample < roots.columns; ++sample) {
       const std::uint32_t code = assignments[sample];

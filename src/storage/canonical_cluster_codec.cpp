@@ -211,7 +211,7 @@ Status PackCodeLengths(ArrayView<const std::uint8_t> lengths,
   const std::size_t packed_bytes = static_cast<std::size_t>(
       CanonicalHuffmanLengthBytes(
           static_cast<std::uint32_t>(lengths.size())));
-  std::fill(output, output + packed_bytes, 0U);
+  std::fill(output, output + packed_bytes, std::uint8_t{0});
   std::uint64_t pending = 0U;
   std::uint32_t pending_bits = 0U;
   std::size_t cursor = 0U;

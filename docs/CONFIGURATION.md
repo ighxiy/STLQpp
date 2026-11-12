@@ -40,26 +40,27 @@ The same settings can be overridden at launch. Quote arrays in the shell:
   --runtime.cuda_pool_size 12 --dump-config effective.cfg
 ```
 
-Paths and run prefixes are free-form strings. The tables below list the choices
-for string-valued selectors; ordinary numeric budgets are described by their
-purpose and units.
+Paths are strings; dataset names and run prefixes are single path components.
+The tables below list selector values, bounded ranges and special numeric values,
+along with the purpose and units of ordinary numeric budgets.
 
 ## Data and model
 
 | Field | Purpose |
 |---|---|
-| `model.m` | Number of selected atoms in a basic/edge code; independent of IVF count. |
+| `model.m` | Number of selected atoms in a basic/edge code: integers `2` through `24`, independent of IVF count. |
 | `model.h0` | Root dictionary size and number of IVF lists. |
 | `dataset.name` | Dataset identity used in output organization. |
 | `dataset.data_root` | Root for relative input-data paths. |
 | `dataset.train_path`, `dataset.base_path` | Original training and base vectors. |
 | `dataset.query_path`, `dataset.groundtruth_path` | Query vectors and matching nearest-neighbor IDs. |
-| `dataset.ntrain`, `dataset.nbase`, `dataset.nquery` | Requested training, base and query counts. |
+| `dataset.ntrain`, `dataset.nbase` | Positive training and base vector counts for construction. |
+| `dataset.nquery` | Query count; `0` uses all available queries, and a positive count selects up to that many. |
 | `dataset.base_first_row` | Starting row of the original base input; supplied recipes use zero. |
 | `dataset.k` | Number of returned neighbors, normally 100. |
 | `dataset.groundtruth_add1` | Add one to loaded GT IDs; supplied zero-based recipes use false. |
-| `large.train_format`, `large.base_format`, `large.query_format` | `auto`, `bvecs`, `fvecs`, `fbin`, or `npy`. `auto` infers the reader from the input path. Accepted format spellings also include `siftbin`/`u8` for `bvecs` and `float`/`f32` for `fvecs`. See [file formats](DATASETS.md#file-formats-and-gt). |
-| `large.gt_format` | `auto`, `ivecs`, `ibin`, or `npy`. |
+| `large.train_format`, `large.base_format`, `large.query_format` | `auto` (also `""`) infers the reader from the input path; `bvecs`, `fvecs`, `fbin`, and `npy` select a reader explicitly. Aliases: `siftbin`/`u8` for `bvecs`, `float`/`f32` for `fvecs`. See [file formats](DATASETS.md#file-formats-and-gt). |
+| `large.gt_format` | `auto` (also `""`) infers the reader from the input path; `ivecs`, `ibin`, and `npy` select a reader explicitly. |
 
 ## Stages, paths and retention
 
@@ -75,14 +76,14 @@ purpose and units.
 | `io.linkage_file` | Published linkage index for evaluation. |
 | `large.output_dir`, `large.tmp_dir` | Final output and intermediate-work roots. |
 | `large.protect_existing_outputs` | Preserve existing completed output namespaces. |
-| `train.ckpt.enabled`, `train.ckpt.every_R` | Export periodic training checkpoints and their interval. |
+| `train.ckpt.enabled`, `train.ckpt.every_R` | Enable periodic training checkpoints and set their round interval. Interval `0` disables periodic exports; positive odd intervals round up to the next even value so exports occur on full-topology rounds. |
 | `large.base_basic_checkpoint`, `large.linkage_checkpoint` | Enable progress reuse for basic and linkage construction. |
 | `large.cleanup.enabled`, `large.cleanup.preset` | Enable post-build cleanup and choose `none`, `dev_all`, `eval_both`, `eval_float_min`, `eval_int8_min`, or `custom`; see [retention policies](#retention-policies). |
 | `large.base_linkage_store_coeffs_f32` | Retain float coefficients for float evaluation and later codec derivation. |
 | `large.archive_log` | Archive native logs alongside the run. |
 | `train.log_metrics` | Print training metrics. |
 | `train.log_linkage_pre_c1` | Also report linkage error before the edge-codebook update. |
-| `large.profile_timing` | Additional eval-only diagnostic timing; use false for builds and ordinary QPS measurement. |
+| `large.profile_timing` | Additional eval-only diagnostic timing. Construction requires `false`; use `false` for ordinary QPS measurement as well. |
 
 ### Retention policies
 
@@ -137,18 +138,18 @@ base.linkage.rsd_rank = 3
 
 | Field | Purpose |
 |---|---|
-| `train.max_R_iters` | Number of training rounds after initialization. |
+| `train.max_R_iters` | Number of training rounds after initialization; `0` skips these rounds. |
 | `train.seed` | Initialization/training random seed. |
 | `train.use_opq_rotation` | Learn the shared orthogonal rotation. |
 | `train.init_samples` | Initialization sample budget, bounded by available training data. |
 | `train.init_linkage_mode` | `legacy_root_only` uses the root-only initialization path; `fast_init` uses the full-topology initialization path. Default and supplied recipes: `legacy_root_only`. |
-| `train.init_linkage_icm_round` | Initialization-linkage ICM sweeps. |
+| `train.init_linkage_icm_round` | Initialization-linkage ICM sweeps: `-1` inherits `base.linkage.icm_round`, `0` skips ICM refinement, and a positive integer sets the sweep count. |
 | `train.encode.rsd_rank`, `base.encode.rsd_rank` | RSD rank for independent basic codes: 1, 2 or 3. |
 | `train.encode.icm_iters`, `base.encode.icm_iters` | ICM refinement sweeps for basic encoding. |
 | `train.encode.ils_iters`, `base.encode.ils_iters` | ILS iterations for basic encoding. |
 | `train.encode.perturb_k`, `base.encode.perturb_k` | Number of layers perturbed by basic ILS. |
 | `base.encode.seed` | Base basic-encoding seed. |
-| `least_squares.cost_mode` | Candidate-cost evaluation: `normal_equation` or `explicit_quadratic`. |
+| `least_squares.cost_mode` | Candidate-cost evaluation: `normal_equation` uses the solved normal equations; `explicit_quadratic` evaluates the quadratic objective explicitly. |
 
 The supplied recipes use RSD basic encoding. Linkage RSD rank is configured
 separately below.
@@ -160,25 +161,27 @@ separately below.
 | `train.linkage.num_layers`, `base.linkage.num_layers` | Radial grouping of nodes within a GOOD cluster. |
 | `train.linkage.depth_k`, `base.linkage.depth_k` | Layer window used to form eligible parent candidates. |
 | `train.linkage.knn_k`, `base.linkage.knn_k` | Nearby-parent candidate budget. |
-| `train.linkage.root_percentile`, `base.linkage.root_percentile` | Inner fraction reserved for independent root representations. |
+| `train.linkage.root_percentile`, `base.linkage.root_percentile` | Inner fraction reserved for independent root representations, in `(0,1]`. |
 | `train.linkage.max_depth`, `base.linkage.max_depth` | Maximum linkage-chain depth. |
 | `train.linkage.rsd_rank`, `base.linkage.rsd_rank` | Edge residual-search rank, 1/2/3; the training setting also applies to Replay. |
 | `train.linkage.icm_round`, `base.linkage.icm_round` | ICM sweeps for linkage refinement. |
 | `train.linkage.seed`, `base.linkage.seed` | Linkage random seeds. |
 | `virtual.enabled` | Enable virtual roots in the dispersed-cluster path. |
-| `virtual.good_fraction` | Fraction of clusters assigned to GOOD; the rest use BAD/dispersed topology. |
-| `virtual.alpha_bad` | BAD-cluster weight in the edge-codebook training update. |
-| `virtual.virtual_ratio` | Virtual-root count relative to a BAD cluster's population. |
+| `virtual.good_fraction` | Fraction of clusters assigned to GOOD, in `(0,1]`; the rest use BAD/dispersed topology. |
+| `virtual.alpha_bad` | Positive BAD-cluster weight in the edge-codebook training update. |
+| `virtual.virtual_ratio` | Virtual-root count relative to a BAD cluster's population, in `(0,1]`. |
 | `virtual.min_virtual`, `virtual.max_virtual` | Per-cluster lower/upper limits on virtual-root count. |
 | `virtual.use_fixed_virtual_per_cluster`, `virtual.fixed_virtual_per_cluster` | Select a fixed per-cluster virtual-root budget instead of the ratio. |
 | `virtual.umap_knn_k` | Neighborhood size used to estimate local density. |
 | `virtual.local_connectivity` | Local-connectivity parameter of that neighborhood weighting. |
-| `virtual.overlap_thr` | Overlap threshold used when selecting virtual anchors. |
+| `virtual.overlap_thr` | Overlap threshold used when selecting virtual anchors, in `[0,1]`. |
 | `virtual.prefer_peaks` | Prefer density peaks in anchor selection. |
 | `virtual.anchor_neighbor_k` | Neighbor budget used around anchors. |
-| `train.linkage.bad_cluster_knn_backend`, `base.linkage.bad_cluster_knn_backend` | BAD-cluster candidate construction: `cpu_exact`, `auto` or `hnsw`. |
+| `train.linkage.bad_cluster_knn_backend`, `base.linkage.bad_cluster_knn_backend` | BAD-cluster candidate construction: `cpu_exact` computes exact neighbors on CPU; `hnsw` uses approximate graph search; `auto` uses exact search up to `bad_cluster_cpu_exact_max_points` and HNSW above it. |
 | `train.linkage.bad_cluster_cpu_exact_max_points`, `base.linkage.bad_cluster_cpu_exact_max_points` | Cluster-size threshold used by `auto` to switch candidate construction. |
-| `hnsw.M`, `hnsw.ef_construction_cap`, `hnsw.ef_search` | Connectivity and search budgets for the construction-side HNSW graph; zero budget values select the automatic policy. |
+| `hnsw.M` | Construction-side HNSW graph connectivity: integers in `[2,10000]`. |
+| `hnsw.ef_construction_cap` | Cap on the construction search budget derived from the requested neighbor count; `0` leaves that derived budget uncapped. |
+| `hnsw.ef_search` | Construction-side neighbor-search budget; at least the requested neighbor count plus one is used. `0` uses that minimum. |
 
 Train and base may use different topology budgets. Changing M or IVF changes
 the trained model; changing only base linkage rank/topology can reuse it.
@@ -188,26 +191,28 @@ the trained model; changing only base linkage rank/topology can reuse it.
 | Field | Purpose |
 |---|---|
 | `large.linkage_coeff_codec.enabled` | Publish compressed coefficients. |
-| `large.linkage_coeff_codec.bits_per_layer` | Shared coefficient widths; `[b]` broadcasts to all layers. |
+| `large.linkage_coeff_codec.bits_per_layer` | Shared coefficient widths: each entry is one of `2`, `3`, `4`, `5`, `6`, `7`, `8` bits. `[b]` broadcasts to all layers; `[]` selects 6 bits. |
 | `large.linkage_coeff_codec.bits_per_layer_root` | Root-specific widths, overriding shared widths when nonempty. |
 | `large.linkage_coeff_codec.bits_per_layer_linkage` | Linked-row widths, overriding shared widths when nonempty. |
-| `large.linkage_coeff_codec.p_first_candidates` | Candidate clipping percentiles for the first coefficient layer. |
-| `large.linkage_coeff_codec.p_rest_candidates` | Candidate clipping percentiles for the remaining layers. |
+| `large.linkage_coeff_codec.p_first_candidates` | Nonempty list of candidate clipping percentages for the first coefficient layer; each value is in `(0,100]`. |
+| `large.linkage_coeff_codec.p_rest_candidates` | Nonempty list of candidate clipping percentages for the remaining layers; each value is in `(0,100]`. |
 | `large.linkage_coeff_codec.use_weighted_quantile` | Use weighted coefficient statistics during fitting. |
 | `large.linkage_coeff_codec.allow_clip` | Allow coefficient clipping to the fitted range. |
 | `large.linkage_coeff_codec.fit_scale` | Fit coefficient-quantizer scales; separate from ADC radial score correction. |
-| `large.linkage_coeff_codec.q_refine_sweeps` | Integer coefficient-refinement sweeps. |
-| `large.linkage_coeff_codec.q_refine_max_layer` | Layer limit for coefficient refinement; zero selects the implementation's full-layer policy. |
-| `large.linkage_coeff_codec.q_refine_step_limit` | Maximum integer-step displacement considered during refinement. |
-| `eval.linkage.modes` | Explicit list drawn from `quantized`, `quantized_scaled`, `float`, `float_scaled`, or `[auto]` to select the available compatible representations. Parser default: `[quantized_scaled]`; dataset cfgs can request multiple modes. |
+| `large.linkage_coeff_codec.q_refine_sweeps` | Integer coefficient-refinement sweeps; `0` disables refinement. |
+| `large.linkage_coeff_codec.q_refine_max_layer` | `0` refines every layer; a positive integer refines that many leading layers, capped at `model.m`. |
+| `large.linkage_coeff_codec.q_refine_step_limit` | A positive integer limits displacement from the current coefficient per coordinate update; `0` selects the rounded coordinate optimum within the coefficient's representable range. |
+| `eval.linkage.modes` | Nonempty list of distinct representations: `float` (float coefficients), `quantized` (compressed coefficients), `float_scaled` or `quantized_scaled` (the corresponding coefficients with radial score correction). `[auto]` selects available compatible representations and is used alone. Parser default: `[quantized_scaled]`. |
 | `eval.disk_norm2_mode` | `lut` or `exact` reconstruction norms, independent of coefficient representation. |
 | `eval.disk_norm2_lut_mode` | `identity`, `tail_weighted`, or `reference` norm representation. |
-| `eval.disk_norm2_lut_kmeans_niter` | Norm-LUT fitting iterations. |
-| `eval.linkage.gpu_norm_enable` | Use CUDA for norm preparation; independent of CPU query scanning. |
+| `eval.disk_norm2_lut_kmeans_niter` | Positive norm-LUT fitting iteration count. |
+| `eval.linkage.gpu_norm_enable` | Use CUDA for norm preparation when `runtime.use_cuda=true`. False selects CPU norm preparation. |
 | `eval.linkage.score_mode` | `l2` (default), `cosine_recon`, or `mips_recon`. The latter two are development evaluation modes; see [scoring examples](#scoring-examples-and-development-modes). |
 
-Keep one width per layer when using heterogeneous widths. Increasing M allocates
-more code bits; increasing coefficient widths improves coefficient precision.
+For heterogeneous widths, arrays shorter than `model.m` repeat their last entry;
+longer arrays are truncated to `model.m`. The same normalization applies to the
+root/linkage overrides, whose entries also use 2 through 8 bits. Increasing M
+allocates more code bits; increasing coefficient widths improves coefficient precision.
 Virtual roots add shared representation overhead. Use the reported rate and
 minimal query disk footprint to compare these allocations.
 
@@ -279,20 +284,21 @@ coefficients, without retraining the model.
 
 | Field | Purpose |
 |---|---|
-| `eval.linkage.nprobe` | IVF lists visited; accepts a scalar or array for a curve. |
+| `eval.linkage.nprobe` | Positive counts of IVF lists visited; accepts a scalar or nonempty array for a curve. |
 | `eval.linkage.ivf_probe_mode` | `exact` center search or `hnsw` routing. |
-| `eval.linkage.ivf_hnsw_M`, `eval.linkage.ivf_hnsw_ef_construction` | IVF routing-graph connectivity and construction budget. |
-| `eval.linkage.ivf_hnsw_ef_search` | HNSW routing search budget; accepts an array. |
-| `eval.linkage.warmup`, `eval.linkage.repeat` | Untimed warmup count and measured repetition count. |
-| `eval.linkage.query_block` | Number of queries processed per block. |
+| `eval.linkage.ivf_hnsw_M` | IVF routing-graph connectivity: integers in `[2,10000]`. |
+| `eval.linkage.ivf_hnsw_ef_construction` | Positive IVF routing-graph construction budget. |
+| `eval.linkage.ivf_hnsw_ef_search` | Positive HNSW routing search budgets; accepts a scalar or nonempty array. |
+| `eval.linkage.warmup`, `eval.linkage.repeat` | Untimed warmup count (`0` skips warmup) and positive measured repetition count. |
+| `eval.linkage.query_block` | Positive number of queries processed per block. |
 | `eval.linkage.parent_louds_native_eval` | Decode parents during scanning; false materializes the parent array during loading. |
 | `eval.linkage.pretransform_query_codebooks` | Precompute source-space codebooks to remove per-query rotation; default true. |
 | `eval.linkage.rerank_candidates` | Number of candidates reranked with original vectors; default zero. |
-| `eval.linkage.rerank_storage` | Original-vector access for reranking: `memory` or `disk`. |
+| `eval.linkage.rerank_storage` | Original-vector access for reranking: `memory` on Windows; `memory` or `disk` on Linux. |
 | `eval.base.nprobe`, `eval.base.warmup`, `eval.base.repeat` | Corresponding controls for basic-only evaluation. |
 | `eval.base.use_ivf` | Default true: use basic IVF routing and `eval.base.nprobe`. False scans all basic lists. `eval.base.enabled` independently turns basic evaluation on/off. |
-| `eval.metric_mode` | Select recall reporting; mode 1 includes top-k set overlap. |
-| `eval.metric_gt_topks` | Ground-truth cutoffs for reporting, e.g. `[1,10,50,100]`. |
+| `eval.metric_mode` | `0`: nearest-neighbor recall; `1`: add Top-K set recall; `2`: also add NDCG. Parser default: `0`. See [metric reporting](#metric-reporting). |
+| `eval.metric_gt_topks` | Positive ground-truth cutoffs for modes `1` and `2`; accepts a scalar or nonempty array, e.g. `[1,10,50,100]`. Values beyond the loaded GT width are ignored. |
 | `eval.bench.quiet` | Reduce per-point console detail while retaining recall/QPS output; default false. |
 | `eval.linkage.archive_eval_result` | Write evaluation-result archives; default true. Log archiving is controlled separately by `large.archive_log`. |
 
@@ -312,6 +318,26 @@ reranking. Original vectors come from `dataset.base_path`. Choose
 `rerank_storage = "memory"` for resident vectors or `"disk"` for disk access,
 with `score_mode = "l2"` and `large.profile_timing = false`.
 
+### Metric reporting
+
+Let `N` be the number of retrieved results and `G` a ground-truth cutoff from
+`eval.metric_gt_topks`. Metrics are averaged over queries.
+
+| `eval.metric_mode` | Reported metrics |
+|---|---|
+| `0` | `r@N`: fraction of queries whose first ground-truth neighbor appears among the first `N` results. |
+| `1` | All mode `0` metrics, plus `topG_r@N`: fraction of the distinct first `G` GT IDs recovered among the first `N` results. |
+| `2` | All mode `1` metrics, plus `ndcgG@N`: binary-relevance NDCG, treating the first `G` GT IDs as relevant and discounting a hit at rank `i` by `1/log2(i+1)`. Normalize by the ideal discounted gain at that cutoff. |
+
+For example, `G=10` and `N=100` produce `top10_r@100` and, in mode `2`,
+`ndcg10@100`. Detailed recall lines report percentages; NDCG is in `[0,1]`.
+Top-K recall and NDCG count each returned ID once. GT cutoffs are sorted and
+deduplicated. If none of the requested cutoffs fits the loaded GT width, the
+fallback uses `10` and/or `50` when they fit, or the full GT width for widths
+`2` through `9`. Modes `1` and `2` require at least one usable cutoff.
+Reports include retrieval cutoffs up to `dataset.k`; Top-K recall and NDCG
+are printed only where `N >= G`.
+
 ## Resources
 
 The ordinary CUDA pool and initialization pool each default to **12 in the
@@ -321,42 +347,48 @@ its thread count and affinity are also cfg-controlled.
 
 | Field | Purpose |
 |---|---|
-| `runtime.use_cuda`, `runtime.cuda_device` | Enable construction acceleration and select the device. |
-| `runtime.cuda_pool_size`, `runtime.cuda_pool_size_init_linkage` | Ordinary and initialization CUDA lane counts. |
+| `runtime.use_cuda` | Enable CUDA execution. False selects CPU execution and CPU norm preparation. CPU builds and runs with no visible CUDA device resolve both CUDA switches to false. |
+| `runtime.cuda_device` | Nonnegative CUDA device index; `0` selects the first visible device. |
+| `runtime.cuda_pool_size`, `runtime.cuda_pool_size_init_linkage` | Positive ordinary CUDA lane count; the initialization count inherits it when `<=0`. |
 | `runtime.cuda_mode`, `runtime.cuda_allow_tf32` | `fast` enables TF32; `strict` follows the explicit `cuda_allow_tf32` flag. To disable TF32, use `strict` with false. Supplied configs use `fast` with true. |
-| `runtime.omp_threads` | CPU worker count; select according to available physical cores. |
-| `runtime.omp_places` | `""`, `none`, `cores`, `threads`, or `sockets`; supplied configs use `cores`. |
-| `runtime.omp_proc_bind` | `""`, `none`, `close`, `spread`, or `primary`; supplied configs use `spread`. |
+| `runtime.omp_threads` | Positive CPU worker count, or `<=0` to use the OpenMP default. |
+| `runtime.omp_places` | `cores`, `threads`, or `sockets` group execution places by physical core, hardware thread, or socket. `none` preserves the runtime setting. `""` uses `cores` for evaluation runs and builds followed by evaluation; build-only runs preserve the runtime setting. Supplied configs use `cores`. |
+| `runtime.omp_proc_bind` | `close` places workers near the primary thread; `spread` distributes them across places; `primary` uses the primary thread's place. `none` preserves the runtime setting. `""` uses `spread` for evaluation runs and builds followed by evaluation; build-only runs preserve the runtime setting. Supplied configs use `spread`. |
 | `large.train_block`, `large.base_block` | Training/base input-block sizes in vectors. |
 | `runtime.cuda_linkage_cross_cluster_batch` | Aggregate independent ready tasks from different clusters. |
 | `runtime.cuda_linkage_cross_cluster_workers` | Number of cross-cluster scheduler workers. |
 | `stlqpp.linkage_scheduler.stable` | Use stable scheduling. |
-| `runtime.c_one_update_shards`, `runtime.c_one_update_shards_init_linkage` | Edge-moment accumulation shards during ordinary/initialization updates. |
+| `runtime.c_one_update_shards`, `runtime.c_one_update_shards_init_linkage` | Positive edge-moment shard counts are capped at the CPU worker count. Ordinary `<=0` uses up to 16 workers; initialization `<=0` inherits the ordinary count. |
 | `stlqpp.root_update.accumulator_partitions` | Root-update accumulation partitions; zero selects automatically. |
 
 ### CUDA workspace and dispatch
 
 Each initialization-specific key below applies to the initial linkage stage;
-its unsuffixed counterpart controls ordinary linkage.
+its unsuffixed counterpart controls ordinary linkage. For the initialization
+pool size, pinned-buffer budget, projection-chunk budget, workspace budget and
+many-node pair limit, `<=0` inherits the ordinary value. The initialization
+chunk pair limit instead uses `0` for automatic sizing.
 
 | Field | Purpose |
 |---|---|
 | `runtime.cuda_linkage_eval_async_pinned_mb`, `runtime.cuda_linkage_eval_async_pinned_mb_init_linkage` | Pinned staging-buffer budget in MiB. |
 | `runtime.cuda_linkage_large_root_xc0_chunk_mb`, `runtime.cuda_linkage_large_root_xc0_chunk_mb_init_linkage` | Large-root projection chunk budget in MiB. |
 | `runtime.cuda_linkage_mem_budget_mb`, `runtime.cuda_linkage_mem_budget_mb_init_linkage` | Linkage workspace sizing budget in MiB. |
-| `runtime.cuda_linkage_many_nodes_max_pairs`, `runtime.cuda_linkage_many_nodes_max_pairs_init_linkage` | Candidate-pair limit for multi-node batches. |
-| `runtime.cuda_linkage_chunk_max_pairs`, `runtime.cuda_linkage_chunk_max_pairs_init_linkage` | Additional candidate-pair chunk limit; zero selects automatic sizing. |
-| `runtime.cuda_linkage_single_gpu_min_candidates`, `runtime.cuda_linkage_single_gpu_max_candidates` | Candidate-count bounds for the single-node GPU dispatch path. |
+| `runtime.cuda_linkage_many_nodes_max_pairs`, `runtime.cuda_linkage_many_nodes_max_pairs_init_linkage` | Candidate-pair limit for multi-node batches: ordinary integers in `[1,32768]`; initialization positive values up to `32768`, or `<=0` to inherit. |
+| `runtime.cuda_linkage_chunk_max_pairs`, `runtime.cuda_linkage_chunk_max_pairs_init_linkage` | Additional candidate-pair chunk limit: integers in `[0,32768]`; `0` selects automatic sizing. |
+| `runtime.cuda_linkage_single_gpu_min_candidates`, `runtime.cuda_linkage_single_gpu_max_candidates` | Candidate-count bounds for the single-node GPU dispatch path; maximum `0` leaves the upper bound unlimited. |
 | `runtime.cuda_linkage_inner_many_nodes_target_nodes` | Target nodes per inner multi-node batch. |
 | `runtime.cuda_linkage_many_nodes_preflush_target_pairs` | Multi-node preflush target in candidate pairs. |
 | `runtime.cuda_linkage_same_layer_block_nodes` | Same-layer node-block size. |
-| `runtime.cuda_linkage_same_layer_single_gpu_min_candidates` | Same-layer single-node GPU threshold. |
-| `runtime.cuda_linkage_same_layer_window_min_pairs`, `runtime.cuda_linkage_same_layer_window_max_pairs` | Lower/upper candidate-pair bounds for a same-layer window. |
-| `runtime.cuda_linkage_same_layer_window_max_pending_nodes` | Pending-node limit for a same-layer window. |
-| `runtime.cuda_linkage_same_layer_preflush_target_pairs`, `runtime.cuda_linkage_same_layer_preflush_target_nodes` | Same-layer early-flush targets. |
+| `runtime.cuda_linkage_same_layer_single_gpu_min_candidates` | Same-layer single-node GPU threshold; `0` inherits `runtime.cuda_linkage_single_gpu_min_candidates`. |
+| `runtime.cuda_linkage_same_layer_window_min_pairs` | Minimum candidate pairs for same-layer batching; `<=0` evaluates one row at a time. |
+| `runtime.cuda_linkage_same_layer_window_max_pairs` | Positive same-layer window cap up to `32768`; `<=0` uses the ordinary many-node cap during ordinary linkage and `32768` during initialization. |
+| `runtime.cuda_linkage_same_layer_window_max_pending_nodes` | Positive pending-node limit; `<=0` uses the same-layer node-block size. |
+| `runtime.cuda_linkage_same_layer_preflush_target_pairs` | Positive values set an early-flush pair trigger; negative values use the larger of the same-layer minimum and the many-node preflush target. `0` disables this trigger for asynchronous preflush; synchronous root-only initialization uses the larger of the same-layer minimum and inner batch node count. |
+| `runtime.cuda_linkage_same_layer_preflush_target_nodes` | Positive early-flush node trigger; `<=0` disables this independent trigger. |
 | `runtime.cuda_linkage_same_layer_tiny_forced_cpu_enable`, `runtime.cuda_linkage_init_same_layer_tiny_forced_cpu_enable` | Enable tiny-tail CPU evaluation in ordinary/initialization linkage. |
-| `runtime.cuda_linkage_same_layer_tiny_forced_cpu_max_pairs`, `runtime.cuda_linkage_same_layer_tiny_forced_cpu_max_nodes` | Tiny-tail dispatch limits. |
-| `runtime.cuda_linkage_bad_frozen_window_nodes`, `runtime.cuda_linkage_bad_frozen_window_max_pairs` | Node/pair bounds for BAD frozen windows. |
+| `runtime.cuda_linkage_same_layer_tiny_forced_cpu_max_pairs`, `runtime.cuda_linkage_same_layer_tiny_forced_cpu_max_nodes` | Tiny-tail dispatch limits: pair limit `<=0` disables forced CPU dispatch; node limit `<=0` leaves the node count unlimited. |
+| `runtime.cuda_linkage_bad_frozen_window_nodes`, `runtime.cuda_linkage_bad_frozen_window_max_pairs` | Positive node/pair bounds for BAD frozen windows; nonpositive values resolve to `1`. The pair bound is at most `32768`. |
 
 ### Streaming and list preparation
 
@@ -374,21 +406,21 @@ its unsuffixed counterpart controls ordinary linkage.
 
 | Field | Purpose |
 |---|---|
-| `train.kmeans_init` | Initial-center method: `kmeansll`, `kmeans++`, or `random`. |
+| `train.kmeans_init` | Initial-center method: `kmeansll` uses k-means\|\| parallel sampling, `kmeans++` uses sequential distance-weighted sampling, and `random` uses random centers. |
 | `train.kmeans_iters`, `train.kmeans_tol` | Maximum k-means iterations and stopping tolerance. |
-| `train.kmeansll_rounds`, `train.kmeansll_oversample` | k-means\|\| sampling rounds and oversampling. |
-| `train.kmeansll_candidate_cap` | Candidate cap; zero uses automatic policy. |
-| `train.kmeansll_seed` | k-means\|\| seed override. |
-| `train.kmeans_initial_weight`, `train.kmeans_min_weight` | Initial/minimum adaptive sample weights. |
-| `train.kmeans_outlier_quantile` | Quantile used to identify high-error samples. |
-| `train.kmeans_cost_threshold` | Cost-change threshold for the adaptive-weight schedule. |
-| `train.kmeans_annealing_factor` | Weight annealing factor. |
+| `train.kmeansll_rounds`, `train.kmeansll_oversample` | k-means\|\| sampling rounds and oversampling, each clamped to `[1,16]` (rounds are integers). |
+| `train.kmeansll_candidate_cap` | Positive candidate cap, bounded by the sample count; `<=0` uses the automatic policy. |
+| `train.kmeansll_seed` | `0` consumes the training RNG; a positive integer supplies an independent k-means\|\| sampling seed. |
+| `train.kmeans_initial_weight`, `train.kmeans_min_weight` | Adaptive sample weights: `0 < min_weight <= initial_weight <= 1`. |
+| `train.kmeans_outlier_quantile` | Quantile used to identify high-error samples, in `[0,1]`. |
+| `train.kmeans_cost_threshold` | Cost-change threshold for the adaptive-weight schedule, in `[0,2]`. |
+| `train.kmeans_annealing_factor` | Weight annealing factor, in `[0,1]`. |
 | `train.kmeans_warmup_iters` | Warmup iterations before adaptive weighting. |
 | `train.kmeans_quantile_bins` | Histogram resolution for quantile estimation. |
-| `train.kmeans_device_cache_mb` | Normalized training-data device-cache budget; 20,480 MiB in supplied configs. Allocates up to the data size and is released after RVQ initialization. |
+| `train.kmeans_device_cache_mb` | Normalized training-data device-cache budget; `0` disables this cache. Supplied configs use 20,480 MiB. Allocates up to the data size and is released after RVQ initialization. |
 | `train.kmeans_large_k_threshold` | Dictionary size at which large-K initialization is selected. |
-| `train.kmeans_large_k_top_coarse` | Number of coarse candidates for large-K assignment. |
+| `train.kmeans_large_k_top_coarse` | `1` searches the nearest coarse group; `2` searches the two nearest groups. Integer inputs are clamped to `[1,2]`. |
 | `train.kmeans_large_k_hier2_enable` | Enable two-level large-K k-means. |
 | `train.kmeans_large_k_fixed_k1` | Fixed coarse partition count; zero uses automatic selection. |
-| `train.kmeans_large_k_k1_min`, `train.kmeans_large_k_k1_max` | Bounds on the automatically selected coarse count. |
+| `train.kmeans_large_k_k1_min`, `train.kmeans_large_k_k1_max` | Bounds on the automatically selected coarse count: positive minimum and maximum at least that minimum. |
 | `train.kmeans_large_k_k1_pow2` | Restrict that count to powers of two. |

@@ -6,6 +6,7 @@
 #include "texmex_reader.h"
 
 #include "stlqpp/application/final_index_log.h"
+#include "stlqpp/application/compute_backend.h"
 #include "stlqpp/application/index_republisher.h"
 #include "stlqpp/application/registered_artifact_recipes.h"
 #include "stlqpp/application/scaled_score8_derivation.h"
@@ -486,11 +487,6 @@ stlqpp::Status EnsureRequestedCoefficientCodec(
         "coefficient-codec hash changed, but the linkage index has no "
         "retained float forest from which to regenerate int coefficients");
   }
-  if (command.gpu_norm_enable && !command.use_cuda) {
-    return stlqpp::Status::FailedPrecondition(
-        "eval.linkage.gpu_norm_enable=true requires runtime.use_cuda=true "
-        "for coefficient-codec norm republish");
-  }
   if (command.gpu_norm_enable &&
       target_norm_mode != stlqpp::ReconstructionNorm8Mode::kIdentityLloyd) {
     return stlqpp::Status::Unimplemented(
@@ -686,11 +682,6 @@ stlqpp::Status EnsureRequestedRepresentations(
         stlqpp::LogInfo("Eval norm8 derivation cache hit: " +
                         command.index.string() + "; no norm recomputation");
       } else {
-        if (command.gpu_norm_enable && !command.use_cuda) {
-          return stlqpp::Status::FailedPrecondition(
-              "eval.linkage.gpu_norm_enable=true requires runtime.use_cuda=true "
-              "for norm-only derivation");
-        }
         const stlqpp::Status status = stlqpp::PublishReconstructionNorm8Runtime(
             command.index, derived.value(), target_mode,
             target_iterations, command.gpu_norm_enable, command.cuda_device,
@@ -728,11 +719,6 @@ stlqpp::Status EnsureRequestedRepresentations(
         stlqpp::EvalRepresentation::kQuantizedScaled);
     if (!hit.ok()) return hit.status();
     if (!hit.value()) {
-      if (command.gpu_norm_enable && !command.use_cuda) {
-        return stlqpp::Status::FailedPrecondition(
-            "eval.linkage.gpu_norm_enable=true requires runtime.use_cuda=true "
-            "for scaled-score derivation");
-      }
       auto table = stlqpp::FitScaledScore8Runtime(
           command.index, command.prepared_original_norms.get(), parallel,
           command.gpu_norm_enable, command.cuda_device);
@@ -1278,6 +1264,10 @@ namespace stlqpp::app {
 
 Status RunExactDenseEval(
     EvalCommand command, char** argv, bool use_build_session) {
+  if (const Status status = ResolveRuntimeCudaExecutionPolicy(
+          command.use_cuda, command.gpu_norm_enable); !status.ok()) {
+    return status;
+  }
   bool report_quantized_budget = false;
   // Empty settings select the production scan policy, including old cfgs.
   if (command.omp_places.empty()) command.omp_places = "cores";

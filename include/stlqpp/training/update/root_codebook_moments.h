@@ -20,7 +20,7 @@ template <int M>
 class RootCodebookMoments final {
  public:
   static_assert(M == 0 || (M >= 2 && M <= 20));
-  static constexpr std::uint32_t kSmallAtoms = M == 0 ? 0U : (M - 1) * 256U;
+  static constexpr std::uint32_t kSmallAtoms = (M == 0 ? 0U : M - 1U) * 256U;
   static constexpr std::uint32_t kMaskWordsPerLayer = 4U;
 
   [[nodiscard]] static StatusOr<RootCodebookMoments<M>> Create(
@@ -53,8 +53,11 @@ class RootCodebookMoments final {
   [[nodiscard]] Status PrepareForSolve();
 
   [[nodiscard]] std::uint32_t m() const noexcept {
-    if constexpr (M != 0) return M;
-    return m_;
+    if constexpr (M != 0) {
+      return M;
+    } else {
+      return m_;
+    }
   }
   [[nodiscard]] std::uint32_t small_atoms() const noexcept {
     return (m() - 1U) * 256U;

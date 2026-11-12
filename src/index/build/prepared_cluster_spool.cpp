@@ -794,7 +794,7 @@ PreparedClusterSpoolWriterStorage::OpenCheckpointed(
       return Status::DataLoss(
           "completion log cursor disagrees with checkpoint");
   } else {
-    std::fill_n(state->completed.begin(), selected->next_cid, 1U);
+    std::fill_n(state->completed.begin(), selected->next_cid, std::uint8_t{1});
   }
   state->next_cid = selected->next_cid;
   state->checkpoint_generation = selected->generation + 1U;

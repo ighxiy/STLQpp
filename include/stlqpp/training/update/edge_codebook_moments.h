@@ -85,8 +85,11 @@ class EdgeCodebookMoments final {
   [[nodiscard]] Status MergeFrom(const EdgeCodebookMoments<M>& shard);
 
   [[nodiscard]] std::uint32_t m() const noexcept {
-    if constexpr (M != 0) return M;
-    return m_;
+    if constexpr (M != 0) {
+      return M;
+    } else {
+      return m_;
+    }
   }
   [[nodiscard]] std::uint32_t atom_count() const noexcept { return m() * 256U; }
   [[nodiscard]] std::uint32_t dimension() const noexcept { return dimension_; }

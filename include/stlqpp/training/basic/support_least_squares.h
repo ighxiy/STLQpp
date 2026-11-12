@@ -57,11 +57,12 @@ class BasicSupportLeastSquares final {
       return NormalEquationSquaredCost(
           algebra, small_codes, root_dot, small_dots, coefficients,
           sample_squared_norm, applied_diagonal_bump);
+    } else {
+      (void)applied_diagonal_bump;
+      return SquaredCost(
+          algebra, root, small_codes, root_dot, small_dots, coefficients,
+          sample_squared_norm);
     }
-    (void)applied_diagonal_bump;
-    return SquaredCost(
-        algebra, root, small_codes, root_dot, small_dots, coefficients,
-        sample_squared_norm);
   }
 };
 
@@ -116,11 +117,12 @@ class RuntimeBasicSupportLeastSquares final {
       return NormalEquationSquaredCost(
           algebra, small_codes, root_dot, small_dots, coefficients,
           sample_squared_norm, applied_diagonal_bump);
+    } else {
+      (void)applied_diagonal_bump;
+      return SquaredCost(
+          algebra, root, small_codes, root_dot, small_dots, coefficients,
+          sample_squared_norm);
     }
-    (void)applied_diagonal_bump;
-    return SquaredCost(
-        algebra, root, small_codes, root_dot, small_dots, coefficients,
-        sample_squared_norm);
   }
 };
 

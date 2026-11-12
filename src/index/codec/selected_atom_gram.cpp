@@ -54,8 +54,10 @@ template <int M>
 StatusOr<SelectedAtomGramTables<M>> SelectedAtomGramTables<M>::Create(
     RuntimeProductCodebookView codebooks, const F32GemmBackend& gemm,
     SelectedAtomGramDemand demand) {
-  if (M != 0 && codebooks.shape.m != static_cast<std::uint32_t>(M))
-    return Status::InvalidArgument("Gram model M mismatch");
+  if constexpr (M != 0) {
+    if (codebooks.shape.m != static_cast<std::uint32_t>(M))
+      return Status::InvalidArgument("Gram model M mismatch");
+  }
   SelectedAtomGramTables<M> output;
   output.codebooks_ = codebooks;
   output.demand_ = demand;

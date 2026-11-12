@@ -1,6 +1,8 @@
 #include "stlqpp/platform/sequential_file_writer.h"
 
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 #include <algorithm>

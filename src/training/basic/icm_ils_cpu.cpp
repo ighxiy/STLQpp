@@ -250,8 +250,9 @@ void RefineSampleLocal(void* opaque, std::uint32_t,
     const std::uint64_t global_sample = [&]() noexcept {
       if constexpr (UseExplicitIds) {
         return context.global_sample_ids[sample];
+      } else {
+        return context.global_sample_offset + sample;
       }
-      return context.global_sample_offset + sample;
     }();
     PerturbLocal<FixedM>(M, candidate_codes.data(), round, context.seed,
                          std::min(M, context.schedule.perturbations()),

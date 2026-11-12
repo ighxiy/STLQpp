@@ -1,5 +1,6 @@
 #include "stlqpp/model/model_shape.h"
 #include "eval_command.h"
+#include "stlqpp/application/compute_backend.h"
 
 #include "stlqpp/model/codec/coefficient_bit_width.h"
 
@@ -814,6 +815,10 @@ StatusOr<EvalCommand> ParseEvalCommand(
         expected_refinement_step_limit;
   }
   output.config_files = std::move(config_files);
+  if (const Status status = ResolveRuntimeCudaExecutionPolicy(
+          output.use_cuda, output.gpu_norm_enable); !status.ok()) {
+    return status;
+  }
   output.frozen_config_inputs = std::move(frozen_config_inputs);
   if (!output.base_enabled && !output.linkage_enabled) {
     return Status::InvalidArgument(

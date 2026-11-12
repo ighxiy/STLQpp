@@ -2,7 +2,6 @@
 #include "stlqpp/pipeline/training_list_root_initialization_source.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -115,12 +114,12 @@ TrainingListRootInitializationSource<M>::Next() {
         exact.values,
         exact.values + static_cast<std::size_t>(exact.rows) * exact.columns);
   }
-  std::array<std::uint8_t, (M == 0 ? kMaximumModelLayers : M)> order{};
-  std::iota(order.begin(), order.begin() + shape.m, static_cast<std::uint8_t>(0U));
+  auto& order = work.icm_layer_order;
+  order.resize(shape.m);
+  std::iota(order.begin(), order.end(), static_cast<std::uint8_t>(0U));
   std::mt19937 rng(static_cast<std::mt19937::result_type>(
       (topology_seed_ + 997U * next_cid_) ^ kRootOnlyIcmSeedSalt));
-  std::shuffle(order.begin(), order.begin() + shape.m, rng);
-  work.icm_layer_order.assign(order.begin(), order.begin() + shape.m);
+  std::shuffle(order.begin(), order.end(), rng);
   if (const Status status = ReconstructBasic(loaded, &work); !status.ok()) {
     return status;
   }

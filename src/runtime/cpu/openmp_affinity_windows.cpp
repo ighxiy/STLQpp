@@ -7,6 +7,8 @@
 #include <mutex>
 #include <process.h>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <windows.h>
 
@@ -17,6 +19,25 @@ constexpr const char* kAffinityReadyEnvironment =
     "STLQPP_OMP_AFFINITY_READY";
 constexpr const char* kNativeAffinityEnvironment =
     "STLQPP_NATIVE_AFFINITY_BASELINE";
+
+// The Windows CRT spawn functions concatenate argv without adding quotes.
+std::string QuoteProcessArgument(std::string_view argument) {
+  std::string quoted = "\"";
+  std::size_t backslashes = 0U;
+  for (const char character : argument) {
+    if (character == '\\') {
+      ++backslashes;
+      continue;
+    }
+    quoted.append(backslashes * (character == '"' ? 2U : 1U), '\\');
+    backslashes = 0U;
+    if (character == '"') quoted += '\\';
+    quoted += character;
+  }
+  quoted.append(backslashes * 2U, '\\');
+  quoted += '"';
+  return quoted;
+}
 
 std::mutex baseline_mutex;
 DWORD_PTR baseline_affinity = 0U;
@@ -145,7 +166,18 @@ Status PrepareOpenMpAffinityProcess(OpenMpAffinityPolicy policy,
     return Status::Internal(
         "failed to mark OpenMP affinity process preparation");
   }
-  _execvp(argument_vector[0], argument_vector);
+  std::vector<std::string> arguments;
+  for (std::size_t index = 0U; argument_vector[index] != nullptr; ++index) {
+    arguments.push_back(QuoteProcessArgument(argument_vector[index]));
+  }
+  std::vector<const char*> pointers;
+  for (const auto& argument : arguments) pointers.push_back(argument.c_str());
+  pointers.push_back(nullptr);
+  // Unlike POSIX exec, Windows _execvp detaches the replacement from callers
+  // waiting on this process. Wait explicitly and propagate its actual status.
+  const auto exit_code = _spawnvp(
+      _P_WAIT, argument_vector[0], pointers.data());
+  if (exit_code != -1) std::exit(static_cast<int>(exit_code));
   _putenv_s(kAffinityReadyEnvironment, "");
   return Status::Internal(
       "failed to restart process for OpenMP affinity");

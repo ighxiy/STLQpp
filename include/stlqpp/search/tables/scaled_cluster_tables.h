@@ -17,6 +17,12 @@ namespace stlqpp {
 #define STLQPP_TABLE_ALWAYS_INLINE inline
 #endif
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+// The SIMD tables intentionally contain padding to align each array to 32 bytes.
+#pragma warning(disable : 4324)
+#endif
+
 template <int M>
 class ScaledClusterQueryTables final {
  public:
@@ -52,6 +58,10 @@ class ScaledClusterQueryTables final {
   alignas(32) std::array<float, (M - 1) * 256> root_small_{};
   alignas(32) std::array<float, M * 256> edge_{};
 };
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 template <int M, bool NegativeTwo>
 STLQPP_TABLE_ALWAYS_INLINE void PrepareScaledClusterQueryTablesImpl(

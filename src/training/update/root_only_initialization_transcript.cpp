@@ -341,8 +341,10 @@ StatusOr<RootOnlyInitializationTranscriptWriter<M>>
 RootOnlyInitializationTranscriptWriter<M>::Create(
     const std::filesystem::path& transient_destination, std::uint32_t dimension,
     std::uint32_t nlist, std::uint32_t m) {
-  if (M != 0 && m != M)
-    return Status::InvalidArgument("transcript M is invalid");
+  if constexpr (M != 0) {
+    if (m != M)
+      return Status::InvalidArgument("transcript M is invalid");
+  }
   auto state = State::Create(transient_destination, dimension, nlist, m);
   if (!state.ok()) return state.status();
   return RootOnlyInitializationTranscriptWriter<M>(std::move(state).value());

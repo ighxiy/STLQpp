@@ -17,10 +17,13 @@ namespace {
 
 #if defined(_MSC_VER)
 #define STLQPP_DENSE_ALWAYS_INLINE __forceinline
+#define STLQPP_DENSE_NOINLINE __declspec(noinline)
 #elif defined(__GNUC__) || defined(__clang__)
 #define STLQPP_DENSE_ALWAYS_INLINE inline __attribute__((always_inline))
+#define STLQPP_DENSE_NOINLINE __attribute__((noinline))
 #else
 #define STLQPP_DENSE_ALWAYS_INLINE inline
+#define STLQPP_DENSE_NOINLINE
 #endif
 
 [[nodiscard]] STLQPP_DENSE_ALWAYS_INLINE __m256 LoadI8x8AsFloat(
@@ -248,7 +251,7 @@ STLQPP_DENSE_ALWAYS_INLINE void ComputeLinkedDotsMaterialized(
 }
 
 template <bool NegativeTwoPrefolded>
-__attribute__((noinline)) void ScoreF32NormRows(
+STLQPP_DENSE_NOINLINE void ScoreF32NormRows(
     std::uint32_t count, const std::uint32_t* __restrict ids,
     const float* __restrict real_dots, const float* __restrict rows,
     QueryTopK* __restrict top_k) noexcept {
@@ -305,7 +308,7 @@ __attribute__((noinline)) void ScoreF32NormRows(
     }
   }
 }
-__attribute__((noinline)) void ScoreF32ScaledRows(
+STLQPP_DENSE_NOINLINE void ScoreF32ScaledRows(
     std::uint32_t count, const std::uint32_t* __restrict ids,
     const float* __restrict real_dots, const float* __restrict biases,
     const float* __restrict multipliers, QueryTopK* __restrict top_k) noexcept {
@@ -365,7 +368,7 @@ STLQPP_DENSE_ALWAYS_INLINE void ScoreRealRowsNorm8(
     const ResidentClusterView<M>& cluster,
     QueryTopK* __restrict top_k,
     const float* __restrict dots) noexcept {
-  if (__builtin_expect(cluster.row_norm2() != nullptr, false)) {
+  if (cluster.row_norm2() != nullptr) [[unlikely]] {
     ScoreF32NormRows<NegativeTwoPrefolded>(cluster.real_count(), cluster.real_ids(),
         dots + cluster.virtual_count(), cluster.row_norm2(), top_k);
     return;
@@ -438,7 +441,7 @@ STLQPP_DENSE_ALWAYS_INLINE void ScoreRealRowsScaled(
     const ResidentClusterView<M>& cluster,
     QueryTopK* __restrict top_k,
     const float* __restrict dots) noexcept {
-  if (__builtin_expect(cluster.row_dot_multipliers() != nullptr, false)) {
+  if (cluster.row_dot_multipliers() != nullptr) [[unlikely]] {
     ScoreF32ScaledRows(cluster.real_count(), cluster.real_ids(), dots + cluster.virtual_count(),
         cluster.row_biases(), cluster.row_dot_multipliers(), top_k);
     return;
@@ -1353,10 +1356,11 @@ void ScanFloatAngularDenseAvx2(
 #define STLQPP_INSTANTIATE_ANGULAR_SCAN(m) \
   template void PrepareAndScanAngularDenseAvx2<m>( \
       const TrustedQueryTables<m>&, const ResidentClusterView<m>&, \
-      ScaledClusterQueryTables<m>*, QueryTopK*, float*, bool, const float*) noexcept; \
+      ScaledClusterQueryTables<m>* __restrict, QueryTopK* __restrict, \
+      float* __restrict, bool, const float*) noexcept; \
   template void ScanFloatAngularDenseAvx2<m>( \
       const TrustedQueryTables<m>&, const FloatResidentClusterView<m>&, \
-      QueryTopK*, float*, bool) noexcept;
+      QueryTopK* __restrict, float* __restrict, bool) noexcept;
 STLQPP_INSTANTIATE_ANGULAR_SCAN(5)
 STLQPP_INSTANTIATE_ANGULAR_SCAN(6)
 STLQPP_INSTANTIATE_ANGULAR_SCAN(10)
@@ -1366,233 +1370,234 @@ STLQPP_INSTANTIATE_ANGULAR_SCAN(12)
 template void PrepareAndScanDenseMaterializedAvx2<5>(
     const TrustedQueryTables<5>&,
     const ResidentClusterView<5>&,
-    ScaledClusterQueryTables<5>*,
-    QueryTopK*,
-    float*) noexcept;
+    ScaledClusterQueryTables<5>* __restrict,
+    QueryTopK* __restrict,
+    float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedAvx2<12>(
     const TrustedQueryTables<12>&,
     const ResidentClusterView<12>&,
-    ScaledClusterQueryTables<12>*,
-    QueryTopK*,
-    float*) noexcept;
+    ScaledClusterQueryTables<12>* __restrict,
+    QueryTopK* __restrict,
+    float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedAvx2<6>(
     const TrustedQueryTables<6>&,
     const ResidentClusterView<6>&,
-    ScaledClusterQueryTables<6>*,
-    QueryTopK*,
-    float*) noexcept;
+    ScaledClusterQueryTables<6>* __restrict,
+    QueryTopK* __restrict,
+    float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedAvx2<10>(
     const TrustedQueryTables<10>&,
     const ResidentClusterView<10>&,
-    ScaledClusterQueryTables<10>*,
-    QueryTopK*,
-    float*) noexcept;
+    ScaledClusterQueryTables<10>* __restrict,
+    QueryTopK* __restrict,
+    float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU16Avx2<5>(
     const TrustedQueryTables<5>&, const ResidentClusterView<5>&,
-    ScaledClusterQueryTables<5>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<5>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU16Avx2<12>(
     const TrustedQueryTables<12>&, const ResidentClusterView<12>&,
-    ScaledClusterQueryTables<12>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<12>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU16Avx2<6>(
     const TrustedQueryTables<6>&, const ResidentClusterView<6>&,
-    ScaledClusterQueryTables<6>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<6>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU16Avx2<10>(
     const TrustedQueryTables<10>&, const ResidentClusterView<10>&,
-    ScaledClusterQueryTables<10>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<10>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU32Avx2<5>(
     const TrustedQueryTables<5>&, const ResidentClusterView<5>&,
-    ScaledClusterQueryTables<5>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<5>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU32Avx2<12>(
     const TrustedQueryTables<12>&, const ResidentClusterView<12>&,
-    ScaledClusterQueryTables<12>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<12>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU32Avx2<6>(
     const TrustedQueryTables<6>&, const ResidentClusterView<6>&,
-    ScaledClusterQueryTables<6>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<6>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU32Avx2<10>(
     const TrustedQueryTables<10>&, const ResidentClusterView<10>&,
-    ScaledClusterQueryTables<10>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<10>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseNativeLoudsAvx2<5>(
     const TrustedQueryTables<5>&,
     const ResidentClusterView<5>&,
-    ScaledClusterQueryTables<5>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<5>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseNativeLoudsAvx2<12>(
     const TrustedQueryTables<12>&,
     const ResidentClusterView<12>&,
-    ScaledClusterQueryTables<12>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<12>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseNativeLoudsAvx2<6>(
     const TrustedQueryTables<6>&,
     const ResidentClusterView<6>&,
-    ScaledClusterQueryTables<6>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<6>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseNativeLoudsAvx2<10>(
     const TrustedQueryTables<10>&,
     const ResidentClusterView<10>&,
-    ScaledClusterQueryTables<10>*, QueryTopK*, float*) noexcept;
+    ScaledClusterQueryTables<10>* __restrict, QueryTopK* __restrict, float* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedProfiledAvx2<5>(
     const TrustedQueryTables<5>&, const ResidentClusterView<5>&,
-    ScaledClusterQueryTables<5>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<5>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedProfiledAvx2<12>(
     const TrustedQueryTables<12>&, const ResidentClusterView<12>&,
-    ScaledClusterQueryTables<12>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<12>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedProfiledAvx2<6>(
     const TrustedQueryTables<6>&, const ResidentClusterView<6>&,
-    ScaledClusterQueryTables<6>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<6>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedProfiledAvx2<10>(
     const TrustedQueryTables<10>&, const ResidentClusterView<10>&,
-    ScaledClusterQueryTables<10>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<10>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU16ProfiledAvx2<5>(
     const TrustedQueryTables<5>&, const ResidentClusterView<5>&,
-    ScaledClusterQueryTables<5>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<5>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU16ProfiledAvx2<12>(
     const TrustedQueryTables<12>&, const ResidentClusterView<12>&,
-    ScaledClusterQueryTables<12>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<12>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU16ProfiledAvx2<6>(
     const TrustedQueryTables<6>&, const ResidentClusterView<6>&,
-    ScaledClusterQueryTables<6>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<6>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU16ProfiledAvx2<10>(
     const TrustedQueryTables<10>&, const ResidentClusterView<10>&,
-    ScaledClusterQueryTables<10>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<10>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU32ProfiledAvx2<5>(
     const TrustedQueryTables<5>&, const ResidentClusterView<5>&,
-    ScaledClusterQueryTables<5>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<5>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU32ProfiledAvx2<12>(
     const TrustedQueryTables<12>&, const ResidentClusterView<12>&,
-    ScaledClusterQueryTables<12>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<12>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU32ProfiledAvx2<6>(
     const TrustedQueryTables<6>&, const ResidentClusterView<6>&,
-    ScaledClusterQueryTables<6>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<6>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void PrepareAndScanDenseMaterializedU32ProfiledAvx2<10>(
     const TrustedQueryTables<10>&, const ResidentClusterView<10>&,
-    ScaledClusterQueryTables<10>*, QueryTopK*, float*, float*,
-    DenseIntScanTiming*) noexcept;
+    ScaledClusterQueryTables<10>* __restrict, QueryTopK* __restrict, float* __restrict, float* __restrict,
+    DenseIntScanTiming* __restrict) noexcept;
 template void ScanFloatDenseMaterializedAvx2<5>(
     const TrustedQueryTables<5>&,
     const FloatResidentClusterView<5>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedAvx2<12>(
     const TrustedQueryTables<12>&,
     const FloatResidentClusterView<12>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedAvx2<6>(
     const TrustedQueryTables<6>&,
     const FloatResidentClusterView<6>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedAvx2<10>(
     const TrustedQueryTables<10>&,
     const FloatResidentClusterView<10>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedU16Avx2<5>(
     const TrustedQueryTables<5>&, const FloatResidentClusterView<5>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedU16Avx2<12>(
     const TrustedQueryTables<12>&, const FloatResidentClusterView<12>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedU16Avx2<6>(
     const TrustedQueryTables<6>&, const FloatResidentClusterView<6>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedU16Avx2<10>(
     const TrustedQueryTables<10>&, const FloatResidentClusterView<10>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedU32Avx2<5>(
     const TrustedQueryTables<5>&, const FloatResidentClusterView<5>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedU32Avx2<12>(
     const TrustedQueryTables<12>&, const FloatResidentClusterView<12>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedU32Avx2<6>(
     const TrustedQueryTables<6>&, const FloatResidentClusterView<6>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseMaterializedU32Avx2<10>(
     const TrustedQueryTables<10>&, const FloatResidentClusterView<10>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseNativeLoudsAvx2<5>(
     const TrustedQueryTables<5>&,
     const FloatResidentClusterView<5>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseNativeLoudsAvx2<12>(
     const TrustedQueryTables<12>&,
     const FloatResidentClusterView<12>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseNativeLoudsAvx2<6>(
     const TrustedQueryTables<6>&,
     const FloatResidentClusterView<6>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatDenseNativeLoudsAvx2<10>(
     const TrustedQueryTables<10>&,
     const FloatResidentClusterView<10>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedAvx2<5>(
     const TrustedQueryTables<5>&, const FloatResidentClusterView<5>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedAvx2<12>(
     const TrustedQueryTables<12>&, const FloatResidentClusterView<12>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedAvx2<6>(
     const TrustedQueryTables<6>&, const FloatResidentClusterView<6>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedAvx2<10>(
     const TrustedQueryTables<10>&, const FloatResidentClusterView<10>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedU16Avx2<5>(
     const TrustedQueryTables<5>&, const FloatResidentClusterView<5>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedU16Avx2<12>(
     const TrustedQueryTables<12>&, const FloatResidentClusterView<12>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedU16Avx2<6>(
     const TrustedQueryTables<6>&, const FloatResidentClusterView<6>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedU16Avx2<10>(
     const TrustedQueryTables<10>&, const FloatResidentClusterView<10>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedU32Avx2<5>(
     const TrustedQueryTables<5>&, const FloatResidentClusterView<5>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedU32Avx2<12>(
     const TrustedQueryTables<12>&, const FloatResidentClusterView<12>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedU32Avx2<6>(
     const TrustedQueryTables<6>&, const FloatResidentClusterView<6>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseMaterializedU32Avx2<10>(
     const TrustedQueryTables<10>&, const FloatResidentClusterView<10>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseNativeLoudsAvx2<5>(
     const TrustedQueryTables<5>&, const FloatResidentClusterView<5>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseNativeLoudsAvx2<12>(
     const TrustedQueryTables<12>&, const FloatResidentClusterView<12>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseNativeLoudsAvx2<6>(
     const TrustedQueryTables<6>&, const FloatResidentClusterView<6>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanFloatScaledDenseNativeLoudsAvx2<10>(
     const TrustedQueryTables<10>&, const FloatResidentClusterView<10>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanDenseAvx2<5>(
     const ResidentClusterView<5>&,
     const ScaledClusterQueryTables<5>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanDenseAvx2<12>(
     const ResidentClusterView<12>&,
     const ScaledClusterQueryTables<12>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanDenseAvx2<6>(
     const ResidentClusterView<6>&,
     const ScaledClusterQueryTables<6>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
 template void ScanDenseAvx2<10>(
     const ResidentClusterView<10>&,
     const ScaledClusterQueryTables<10>&,
-    QueryTopK*, float*) noexcept;
+    QueryTopK* __restrict, float* __restrict) noexcept;
+
 }  // namespace stlqpp
