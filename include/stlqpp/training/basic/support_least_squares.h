@@ -54,6 +54,7 @@ class BasicSupportLeastSquares final {
       float sample_squared_norm,
       float applied_diagonal_bump) noexcept {
     if constexpr (Mode == LeastSquaresCostMode::kNormalEquation) {
+      (void)root;
       return NormalEquationSquaredCost(
           algebra, small_codes, root_dot, small_dots, coefficients,
           sample_squared_norm, applied_diagonal_bump);
@@ -114,6 +115,7 @@ class RuntimeBasicSupportLeastSquares final {
       float sample_squared_norm,
       float applied_diagonal_bump) noexcept {
     if constexpr (Mode == LeastSquaresCostMode::kNormalEquation) {
+      (void)root;
       return NormalEquationSquaredCost(
           algebra, small_codes, root_dot, small_dots, coefficients,
           sample_squared_norm, applied_diagonal_bump);

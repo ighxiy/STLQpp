@@ -18,12 +18,15 @@ namespace {
 #if defined(_MSC_VER)
 #define STLQPP_DENSE_ALWAYS_INLINE __forceinline
 #define STLQPP_DENSE_NOINLINE __declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
+#define STLQPP_DENSE_IF_UNLIKELY(condition) if (condition) [[unlikely]]
+#elif defined(__GNUC__)
 #define STLQPP_DENSE_ALWAYS_INLINE inline __attribute__((always_inline))
 #define STLQPP_DENSE_NOINLINE __attribute__((noinline))
+#define STLQPP_DENSE_IF_UNLIKELY(condition) if (__builtin_expect((condition), false))
 #else
 #define STLQPP_DENSE_ALWAYS_INLINE inline
 #define STLQPP_DENSE_NOINLINE
+#define STLQPP_DENSE_IF_UNLIKELY(condition) if (condition)
 #endif
 
 [[nodiscard]] STLQPP_DENSE_ALWAYS_INLINE __m256 LoadI8x8AsFloat(
@@ -368,7 +371,7 @@ STLQPP_DENSE_ALWAYS_INLINE void ScoreRealRowsNorm8(
     const ResidentClusterView<M>& cluster,
     QueryTopK* __restrict top_k,
     const float* __restrict dots) noexcept {
-  if (cluster.row_norm2() != nullptr) [[unlikely]] {
+  STLQPP_DENSE_IF_UNLIKELY(cluster.row_norm2() != nullptr) {
     ScoreF32NormRows<NegativeTwoPrefolded>(cluster.real_count(), cluster.real_ids(),
         dots + cluster.virtual_count(), cluster.row_norm2(), top_k);
     return;
@@ -441,7 +444,7 @@ STLQPP_DENSE_ALWAYS_INLINE void ScoreRealRowsScaled(
     const ResidentClusterView<M>& cluster,
     QueryTopK* __restrict top_k,
     const float* __restrict dots) noexcept {
-  if (cluster.row_dot_multipliers() != nullptr) [[unlikely]] {
+  STLQPP_DENSE_IF_UNLIKELY(cluster.row_dot_multipliers() != nullptr) {
     ScoreF32ScaledRows(cluster.real_count(), cluster.real_ids(), dots + cluster.virtual_count(),
         cluster.row_biases(), cluster.row_dot_multipliers(), top_k);
     return;
