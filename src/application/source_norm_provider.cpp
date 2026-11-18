@@ -44,8 +44,43 @@
 namespace stlqpp {
 namespace {
 
-constexpr std::uint32_t kRowsPerBatch = 4096U;
+constexpr std::uint32_t kRowsPerBatch = 65536U;
 constexpr std::size_t kNormHeaderBytes = 176U;
+
+std::uint32_t BatchRows(std::uint32_t dimension) {
+  return std::min(kRowsPerBatch, std::max(256U, (4U * 1024U * 1024U) / dimension));
+}
+
+struct SourceNormRows {
+  const float* values;
+  float* output;
+  std::uint32_t dimension;
+  std::size_t rows;
+  bool u8;
+  std::atomic<bool> invalid{false};
+};
+
+void ComputeSourceNormRows(void* opaque, std::uint32_t, std::uint32_t task) noexcept {
+  auto& work = *static_cast<SourceNormRows*>(opaque);
+  const auto end = std::min(work.rows, (std::size_t(task) + 1U) * 256U);
+  for (std::size_t row = std::size_t(task) * 256U; row < end; ++row) {
+    const float* values = work.values + row * work.dimension;
+    float norm = 0.0F;
+    if (work.u8) {
+      std::uint64_t sum = 0U;
+      for (std::uint32_t axis = 0; axis < work.dimension; ++axis) {
+        const auto value = static_cast<std::uint32_t>(values[axis]);
+        sum += value * value;
+      }
+      norm = static_cast<float>(sum);
+    } else {
+      for (std::uint32_t axis = 0; axis < work.dimension; ++axis)
+        norm += values[axis] * values[axis];
+    }
+    if (!std::isfinite(norm)) work.invalid.store(true, std::memory_order_relaxed);
+    work.output[row] = norm;
+  }
+}
 
 std::string ResolveFormat(const std::filesystem::path& path,
                           std::string_view requested) {
@@ -118,6 +153,7 @@ StatusOr<SourceNormProvider> SourceNormProvider::Open(
     const std::filesystem::path& path, std::string_view requested_format,
     std::uint64_t first_row, std::uint64_t row_count, std::uint32_t dimension,
     const ParallelForExecutor& parallel) {
+  if (dimension == 0U) return Status::InvalidArgument("source dimension must be positive");
   const std::string format = ResolveFormat(path, requested_format);
   if (format == "bvecs") {
     BaseBvecsU8SourceFactory factory(
@@ -126,7 +162,7 @@ StatusOr<SourceNormProvider> SourceNormProvider::Open(
             .dimension = dimension,
             .first_vector = first_row,
             .vector_count = row_count,
-            .block_vectors = kRowsPerBatch,
+            .block_vectors = BatchRows(dimension),
         },
         parallel);
     auto source = factory.OpenExactRows();
@@ -149,7 +185,7 @@ StatusOr<SourceNormProvider> SourceNormProvider::Open(
           .dimension = dimension,
           .first_vector = first_row,
           .vector_count = row_count,
-          .block_vectors = kRowsPerBatch,
+          .block_vectors = BatchRows(dimension),
           .layout = layout,
       },
       parallel);
@@ -160,39 +196,80 @@ StatusOr<SourceNormProvider> SourceNormProvider::Open(
 
 Status SourceNormProvider::Read(ArrayView<const std::uint32_t> stable_ids,
                                 std::vector<float>* output) const {
+  const InlineParallelFor serial;
+  return Read(stable_ids, output, serial);
+}
+
+Status SourceNormProvider::Read(ArrayView<const std::uint32_t> stable_ids,
+                                std::vector<float>* output,
+                                const ParallelForExecutor& parallel) const {
   if (output == nullptr) {
     return Status::InvalidArgument("source norm output is null");
   }
   output->resize(stable_ids.size());
-  if (!cache_mapping_.empty()) {
-    const auto rows = (cache_mapping_.size() - kNormHeaderBytes) / 4U;
-    for (std::size_t i = 0; i < stable_ids.size(); ++i) {
-      if (stable_ids[i] >= rows)
-        return Status::DataLoss("original-vector norm cache does not cover stable ID");
-      const float norm = LoadLittleEndianF32(
-          cache_mapping_.data() + kNormHeaderBytes + stable_ids[i] * 4ULL);
-      if (!std::isfinite(norm) || norm < 0.0F)
-        return Status::DataLoss("invalid requested original-vector norm");
-      (*output)[i] = norm;
+  const SourceNormRead read{stable_ids, *output};
+  return ReadBatch({&read, 1U}, parallel);
+}
+
+Status SourceNormProvider::ReadBatch(ArrayView<const SourceNormRead> reads,
+                                     const ParallelForExecutor& parallel) const {
+  for (const auto& read : reads)
+    if (read.stable_ids.size() != read.output.size())
+      return Status::InvalidArgument("source norm batch output extent mismatch");
+  if (!cache_mapping_.empty() || !norms_by_id_.empty()) {
+    std::vector<SourceNormRead> chunks;
+    std::size_t chunk_count = 0U;
+    for (const auto& read : reads) chunk_count += (read.stable_ids.size() + 4095U) / 4096U;
+    chunks.reserve(chunk_count);
+    for (const auto& read : reads) {
+      for (std::size_t first = 0U; first < read.stable_ids.size(); first += 4096U) {
+        const auto count = std::min<std::size_t>(4096U, read.stable_ids.size() - first);
+        chunks.push_back({{read.stable_ids.data() + first, count}, {read.output.data() + first, count}});
+      }
     }
-    return Status::Ok();
+    if (chunks.empty()) return Status::Ok();
+    struct CachedRows {
+      const std::uint8_t* mapped;
+      const float* values;
+      std::size_t rows;
+      const SourceNormRead* chunks;
+      std::atomic<bool> invalid{false};
+    } work{cache_mapping_.empty() ? nullptr : cache_mapping_.data() + kNormHeaderBytes,
+           norms_by_id_.data(), cache_mapping_.empty() ? norms_by_id_.size()
+               : (cache_mapping_.size() - kNormHeaderBytes) / 4U,
+           chunks.data()};
+    parallel.Run(static_cast<std::uint32_t>(chunks.size()), &work,
+        [](void* opaque, std::uint32_t, std::uint32_t chunk) noexcept {
+      auto& w = *static_cast<CachedRows*>(opaque);
+      const auto& read = w.chunks[chunk];
+      for (std::size_t row = 0U; row < read.stable_ids.size(); ++row) {
+        const auto id = read.stable_ids[row];
+        if (id >= w.rows) { w.invalid.store(true, std::memory_order_relaxed); continue; }
+        const auto norm = w.mapped ? LoadLittleEndianF32(w.mapped + id * 4ULL) : w.values[id];
+        if (!std::isfinite(norm) || norm < 0.0F)
+          w.invalid.store(true, std::memory_order_relaxed);
+        read.output[row] = norm;
+      }
+    });
+    return work.invalid.load(std::memory_order_relaxed)
+        ? Status::DataLoss("original-vector norm cache does not cover stable ID or has invalid norm")
+        : Status::Ok();
   }
-  if (!norms_by_id_.empty()) {
-    for (std::size_t i = 0; i < stable_ids.size(); ++i) {
-      if (stable_ids[i] >= norms_by_id_.size() ||
-          !std::isfinite(norms_by_id_[stable_ids[i]]))
-        return Status::DataLoss(
-            "original-vector norm cache does not cover stable ID");
-      (*output)[i] = norms_by_id_[stable_ids[i]];
-    }
-    return Status::Ok();
-  }
+  for (const auto& read : reads)
+    if (const auto status = ReadRaw(read, parallel); !status.ok()) return status;
+  return Status::Ok();
+}
+
+Status SourceNormProvider::ReadRaw(const SourceNormRead& read,
+                                   const ParallelForExecutor& parallel) const {
+  const auto stable_ids = read.stable_ids;
   std::vector<std::uint64_t> ids;
   std::vector<float> exact;
+  const auto batch_rows = BatchRows(dimension_);
   for (std::size_t first = 0U; first < stable_ids.size();
-       first += kRowsPerBatch) {
+       first += batch_rows) {
     const std::size_t count =
-        std::min<std::size_t>(kRowsPerBatch, stable_ids.size() - first);
+        std::min<std::size_t>(batch_rows, stable_ids.size() - first);
     ids.resize(count);
     for (std::size_t row = 0U; row < count; ++row) {
       ids[row] = stable_ids[first + row];
@@ -200,26 +277,10 @@ Status SourceNormProvider::Read(ArrayView<const std::uint32_t> stable_ids,
     if (const Status status = source_->Gather(ids, &exact); !status.ok()) {
       return status;
     }
-    for (std::size_t row = 0U; row < count; ++row) {
-      const float* values = exact.data() + row * dimension_;
-      float norm2 = 0.0F;
-      if (source_is_u8_) {
-        std::uint64_t integer_norm2 = 0U;
-        for (std::uint32_t axis = 0U; axis < dimension_; ++axis) {
-          const std::uint32_t value = static_cast<std::uint32_t>(values[axis]);
-          integer_norm2 += value * value;
-        }
-        norm2 = static_cast<float>(integer_norm2);
-      } else {
-        for (std::uint32_t axis = 0U; axis < dimension_; ++axis) {
-          norm2 += values[axis] * values[axis];
-        }
-      }
-      if (!std::isfinite(norm2)) {
-        return Status::DataLoss("source base contains a non-finite norm");
-      }
-      (*output)[first + row] = norm2;
-    }
+    SourceNormRows work{exact.data(), read.output.data() + first, dimension_, count, source_is_u8_};
+    parallel.Run(static_cast<std::uint32_t>((count + 255U) / 256U), &work, &ComputeSourceNormRows);
+    if (work.invalid.load(std::memory_order_relaxed))
+      return Status::DataLoss("source base contains a non-finite norm");
   }
   return Status::Ok();
 }
@@ -443,11 +504,12 @@ StatusOr<SourceNormProvider> SourceNormProvider::OpenForIndex(
     out.norms_by_id_.resize(rows);
     std::vector<std::uint32_t> ids;
     std::vector<float> norms;
-    for (std::uint64_t first = 0U; first < rows; first += kRowsPerBatch) {
-      const auto count = std::min<std::uint64_t>(kRowsPerBatch, rows - first);
+    const auto batch_rows = BatchRows(manifest.shape.dimension);
+    for (std::uint64_t first = 0U; first < rows; first += batch_rows) {
+      const auto count = std::min<std::uint64_t>(batch_rows, rows - first);
       ids.resize(count);
       std::iota(ids.begin(), ids.end(), static_cast<std::uint32_t>(first));
-      if (const auto status = opened.value().Read(ids, &norms); !status.ok())
+      if (const auto status = opened.value().Read(ids, &norms, parallel); !status.ok())
         return status;
       std::copy(norms.begin(), norms.end(), out.norms_by_id_.begin() + first);
     }

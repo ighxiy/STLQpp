@@ -6,6 +6,7 @@
 #include "stlqpp/index/norm/reconstruction_norm8.h"
 #include "stlqpp/index/norm/runtime_reconstruction_norms.h"
 #include "stlqpp/index/norm/reconstruction_norms.h"
+#include "stlqpp/runtime/cpu/parallel_sort.h"
 #if STLQPP_HAS_CUDA_NORM
 #include "stlqpp/index/norm/reconstruction_norm8_cuda.h"
 #include "stlqpp/index/norm/reconstruction_norms_cuda.h"
@@ -73,6 +74,29 @@ struct DecodedNormCluster {
   }
 
 };
+
+// Decoded work is bounded by both worker count and a row budget. Results are
+// consumed in CID order, preserving the reference-mean accumulation order.
+template <class Function>
+Status ForNormClusterWindows(const CanonicalIndexFiles& files,
+                             const ParallelForExecutor& parallel,
+                             Function&& function) {
+  const auto nlist = files.manifest().shape.nlist;
+  for (std::uint32_t first = 0U; first < nlist;) {
+    auto end = first;
+    std::uint64_t rows = 0U;
+    while (end < nlist && end - first < parallel.worker_count()) {
+      const auto& entry = files.entry(end);
+      const auto count = std::uint64_t(entry.real_count) + entry.virtual_count;
+      if (end != first && rows + count > 1048576U) break;
+      rows += count;
+      ++end;
+    }
+    if (auto status = function(first, end); !status.ok()) return status;
+    first = end;
+  }
+  return Status::Ok();
+}
 StatusOr<DecodedNormCluster> DecodeNormCluster(
     const CanonicalIndexFiles& files, bool native, std::uint32_t cid) {
   const auto shape = files.manifest().shape;
@@ -112,6 +136,8 @@ struct Population {
 StatusOr<Population> Reconstruct(const EvalNormCacheRequest& r,
                                  const CanonicalIndexFiles& files,
                                  bool prepare_reference_mean = false) {
+  InlineParallelFor serial;
+  const auto& parallel = r.parallel ? *r.parallel : serial;
   const auto shape = files.manifest().shape;
   auto model = CanonicalModelCodec::DecodeRuntime(files.model_bytes().data(),
                                                   files.model_bytes().size());
@@ -148,14 +174,103 @@ StatusOr<Population> Reconstruct(const EvalNormCacheRequest& r,
     return Status::ResourceExhausted("norm population exceeds host domain");
   std::vector<float> all, source_norms;
   all.reserve(static_cast<std::size_t>(files.manifest().counts.real));
-  if (r.scaled) source_norms.reserve(all.capacity());
+  if (r.scaled) source_norms.resize(static_cast<std::size_t>(files.manifest().counts.real));
+  std::vector<std::vector<std::uint32_t>> source_ids;
+  if (r.scaled && r.source) source_ids.reserve(parallel.worker_count());
+  std::size_t source_offset = 0U, queued_rows = 0U;
+  const auto flush_source = [&]() -> Status {
+    if (source_ids.empty()) return Status::Ok();
+    std::vector<SourceNormRead> reads;
+    reads.reserve(source_ids.size());
+    auto offset = source_offset;
+    for (const auto& ids : source_ids) {
+      reads.push_back({ids, {source_norms.data() + offset, ids.size()}});
+      offset += ids.size();
+    }
+    if (auto status = r.source->ReadBatch(reads, parallel); !status.ok()) return status;
+    source_offset = offset;
+    queued_rows = 0U;
+    source_ids.clear();
+    return Status::Ok();
+  };
+  const auto queue_source = [&](std::uint32_t cid, std::vector<std::uint32_t>& ids) -> Status {
+    if (!r.scaled) return Status::Ok();
+    if (!r.source) {
+      auto status = files.ReadFloatSourceNorm2(cid, {source_norms.data() + source_offset, ids.size()});
+      source_offset += ids.size();
+      return status;
+    }
+    if (source_ids.size() == parallel.worker_count() ||
+        (!source_ids.empty() && queued_rows + ids.size() > 1048576U))
+      if (auto status = flush_source(); !status.ok()) return status;
+    queued_rows += ids.size();
+    source_ids.push_back(std::move(ids));
+    return Status::Ok();
+  };
+
+  if (!r.use_cuda && r.parallel != nullptr && r.parallel->worker_count() > 1U) {
+    const auto status = ForNormClusterWindows(files, *r.parallel,
+        [&](std::uint32_t first, std::uint32_t end) -> Status {
+      struct Slot {
+        Status status;
+        std::optional<DecodedNormCluster> cluster;
+        std::vector<float> norms;
+      };
+      std::vector<Slot> slots(end - first);
+      struct Work {
+        const CanonicalIndexFiles* files;
+        const RuntimeGramReconstructionNormComputer* cpu;
+        bool native;
+        std::uint32_t first;
+        std::vector<Slot>* slots;
+      } work{&files, &*cpu, r.native_float, first, &slots};
+      r.parallel->Run(end - first, &work,
+          [](void* opaque, std::uint32_t, std::uint32_t item) noexcept {
+        auto& w = *static_cast<Work*>(opaque);
+        const auto cid = w.first + item;
+        if (w.files->entry(cid).real_count == 0U) return;
+        auto& slot = (*w.slots)[item];
+        auto decoded = DecodeNormCluster(*w.files, w.native, cid);
+        if (!decoded.ok()) { slot.status = decoded.status(); return; }
+        slot.cluster = std::move(decoded).value();
+        auto norms = w.native ? w.cpu->ComputeFloat(slot.cluster->native(cid))
+                              : w.cpu->Compute(slot.cluster->quantized(cid));
+        if (!norms.ok()) { slot.status = norms.status(); return; }
+        slot.norms = std::move(norms).value();
+      });
+      for (std::uint32_t item = 0U; item < end - first; ++item) {
+        auto& slot = slots[item];
+        if (!slot.status.ok()) return slot.status;
+        if (!slot.cluster) continue;
+        const auto cid = first + item;
+        if (mean) {
+          const auto accumulated = r.native_float
+              ? mean->AccumulateFloat(slot.cluster->native(cid))
+              : mean->Accumulate(slot.cluster->quantized(cid));
+          if (!accumulated.ok()) return accumulated;
+        }
+        all.insert(all.end(), slot.norms.begin(), slot.norms.end());
+        if (auto queued = queue_source(cid, slot.cluster->cluster.topology.real_ids);
+            !queued.ok()) return queued;
+      }
+      return Status::Ok();
+    });
+    if (!status.ok()) return status;
+    if (auto flushed = flush_source(); !flushed.ok()) return flushed;
+    Population out{std::move(all), std::move(source_norms), {}, {}, {}};
+    if (mean) {
+      auto reference = mean->Finish();
+      if (!reference.ok()) return reference.status();
+      out.reference = std::move(reference).value();
+    }
+    return out;
+  }
   for (std::uint32_t cid = 0; cid < shape.nlist; ++cid) {
     const auto& e = files.entry(cid);
     if (e.real_count == 0U) continue;
     auto decoded = DecodeNormCluster(files, r.native_float, cid);
     if (!decoded.ok()) return decoded.status();
-    const auto& cluster = decoded.value();
-    const auto& t = cluster.cluster.topology;
+    auto& cluster = decoded.value();
     if (mean) {
       const auto status = r.native_float ? mean->AccumulateFloat(cluster.native(cid))
                                         : mean->Accumulate(cluster.quantized(cid));
@@ -175,22 +290,11 @@ StatusOr<Population> Reconstruct(const EvalNormCacheRequest& r,
     }();
     if (!norms.ok()) return norms.status();
     all.insert(all.end(), norms.value().begin(), norms.value().end());
-    if (r.scaled) {
-      std::vector<float> source;
-      if (r.source != nullptr) {
-        if (const Status status = r.source->Read(t.real_ids, &source);
-            !status.ok())
-          return status;
-      } else {
-        source.resize(e.real_count);
-        if (const Status status = files.ReadFloatSourceNorm2(cid, source);
-            !status.ok())
-          return status;
-      }
-      source_norms.insert(source_norms.end(), source.begin(), source.end());
-    }
+    if (auto status = queue_source(cid, cluster.cluster.topology.real_ids);
+        !status.ok()) return status;
   }
 
+  if (auto flushed = flush_source(); !flushed.ok()) return flushed;
   Population out{std::move(all), std::move(source_norms), {}, {}, {}};
   if (mean) {
     auto reference = mean->Finish();
@@ -202,7 +306,7 @@ StatusOr<Population> Reconstruct(const EvalNormCacheRequest& r,
 
 StatusOr<std::vector<double>> ReferenceProjections(
     const CanonicalIndexFiles& files, bool native,
-    ArrayView<const float> reference) {
+    ArrayView<const float> reference, const ParallelForExecutor* executor) {
   auto model = CanonicalModelCodec::DecodeRuntime(files.model_bytes().data(),
                                                   files.model_bytes().size());
   if (!model.ok()) return model.status();
@@ -211,14 +315,38 @@ StatusOr<std::vector<double>> ReferenceProjections(
   if (!projector.ok()) return projector.status();
   std::vector<double> all;
   all.reserve(files.manifest().counts.real);
-  for (unsigned cid = 0; cid < files.manifest().shape.nlist; ++cid) {
-    auto cluster = DecodeNormCluster(files, native, cid);
-    if (!cluster.ok()) return cluster.status();
-    auto values = native ? projector.value().ComputeFloat(cluster.value().native(cid))
-                         : projector.value().Compute(cluster.value().quantized(cid));
-    if (!values.ok()) return values.status();
-    all.insert(all.end(), values.value().begin(), values.value().end());
-  }
+  InlineParallelFor serial;
+  const auto& parallel = executor ? *executor : serial;
+  const auto status = ForNormClusterWindows(files, parallel,
+      [&](std::uint32_t first, std::uint32_t end) -> Status {
+    struct Slot { Status status; std::vector<double> values; };
+    std::vector<Slot> slots(end - first);
+    struct Work {
+      const CanonicalIndexFiles* files;
+      const RuntimeReconstructionProjectionComputer* projector;
+      bool native;
+      std::uint32_t first;
+      std::vector<Slot>* slots;
+    } work{&files, &projector.value(), native, first, &slots};
+    parallel.Run(end - first, &work,
+        [](void* opaque, std::uint32_t, std::uint32_t item) noexcept {
+      auto& w = *static_cast<Work*>(opaque);
+      const auto cid = w.first + item;
+      auto& slot = (*w.slots)[item];
+      auto cluster = DecodeNormCluster(*w.files, w.native, cid);
+      if (!cluster.ok()) { slot.status = cluster.status(); return; }
+      auto values = w.native ? w.projector->ComputeFloat(cluster.value().native(cid))
+                             : w.projector->Compute(cluster.value().quantized(cid));
+      if (!values.ok()) { slot.status = values.status(); return; }
+      slot.values = std::move(values).value();
+    });
+    for (auto& slot : slots) {
+      if (!slot.status.ok()) return slot.status;
+      all.insert(all.end(), slot.values.begin(), slot.values.end());
+    }
+    return Status::Ok();
+  });
+  if (!status.ok()) return status;
   return all;
 }
 
@@ -229,7 +357,7 @@ StatusOr<Population> ReconstructReference(
   if (!origin.ok()) return origin.status();
   std::vector<float> reference(cached_reference.begin(), cached_reference.end());
   if (reference.empty()) reference = origin.value().reference;
-  auto projection = ReferenceProjections(files, r.native_float, reference);
+  auto projection = ReferenceProjections(files, r.native_float, reference, r.parallel);
   if (!projection.ok()) return projection.status();
   auto out = std::move(origin).value();
   out.origin_norm2 = std::move(out.norm2);
@@ -252,20 +380,27 @@ StatusOr<Population> ReconstructReference(
 // Log-domain Lloyd determines labels; decoded norm2 centers are arithmetic
 // means in the original residual-norm domain. Ties choose the lower label.
 StatusOr<std::pair<std::array<float, 256>, std::vector<std::uint8_t>>>
-FitReferenceNorms(const std::vector<float>& norms, std::uint32_t iterations) {
+FitReferenceNorms(const std::vector<float>& norms, std::uint32_t iterations,
+                  const ParallelForExecutor& parallel) {
   std::array<float, 256> centers{};
   std::vector<std::uint8_t> labels(norms.size(), 0U);
   if (norms.empty()) return std::make_pair(centers, std::move(labels));
   std::vector<double> values(norms.begin(), norms.end());
-  std::sort(values.begin(), values.end());
+  ParallelSort(values, parallel);
   const auto n = values.size();
   const double median = n % 2 ? values[n/2] : (values[n/2-1]+values[n/2])*0.5;
   const double epsilon = std::max(median * 1.0e-6, 1.0e-12);
   std::vector<double> prefix(n+1, 0.0);
-  for (std::size_t i = 0; i < n; ++i) {
-    values[i] = std::log(values[i] + epsilon);
-    prefix[i+1] = prefix[i] + values[i];
-  }
+  struct Logs { std::vector<double>* values; double epsilon; } logs{&values, epsilon};
+  parallel.Run(static_cast<std::uint32_t>((n + 4095U) / 4096U), &logs,
+      [](void* opaque, std::uint32_t, std::uint32_t chunk) noexcept {
+    auto& w = *static_cast<Logs*>(opaque);
+    const auto end = std::min(w.values->size(), (std::size_t(chunk) + 1U) * 4096U);
+    for (std::size_t i = std::size_t(chunk) * 4096U; i < end; ++i)
+      (*w.values)[i] = std::log((*w.values)[i] + w.epsilon);
+  });
+  // Keep this inexpensive prefix scan in its original arithmetic order.
+  for (std::size_t i = 0; i < n; ++i) prefix[i+1] = prefix[i] + values[i];
   std::array<double, 256> log_centers{};
   for (unsigned l = 0; l < 256; ++l)
     log_centers[l] = static_cast<float>(values[std::size_t(l)*n/256]);
@@ -289,10 +424,23 @@ FitReferenceNorms(const std::vector<float>& norms, std::uint32_t iterations) {
     boundaries[l] = (log_centers[l]+log_centers[l+1])*0.5;
   std::array<double, 256> sums{};
   std::array<std::uint64_t, 256> counts{};
+  struct Labels {
+    const std::vector<float>* norms;
+    const std::array<double, 255>* boundaries;
+    std::vector<std::uint8_t>* labels;
+    double epsilon;
+  } label_work{&norms, &boundaries, &labels, epsilon};
+  parallel.Run(static_cast<std::uint32_t>((n + 4095U) / 4096U), &label_work,
+      [](void* opaque, std::uint32_t, std::uint32_t chunk) noexcept {
+    auto& w = *static_cast<Labels*>(opaque);
+    const auto end = std::min(w.norms->size(), (std::size_t(chunk) + 1U) * 4096U);
+    for (std::size_t i = std::size_t(chunk) * 4096U; i < end; ++i)
+      (*w.labels)[i] = static_cast<std::uint8_t>(std::lower_bound(
+          w.boundaries->begin(), w.boundaries->end(),
+          std::log(double((*w.norms)[i]) + w.epsilon)) - w.boundaries->begin());
+  });
   for (std::size_t i = 0; i < norms.size(); ++i) {
-    const auto l = std::lower_bound(boundaries.begin(), boundaries.end(),
-        std::log(double(norms[i]) + epsilon)) - boundaries.begin();
-    labels[i] = static_cast<std::uint8_t>(l);
+    const auto l = labels[i];
     sums[l] += norms[i];
     ++counts[l];
   }
@@ -670,7 +818,7 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
         for (auto value : all) AppendF32(norms, value);
         payload.push_back({norm_names[0], std::move(norms)});
       } else if (reference_mode) {
-        auto fitted = FitReferenceNorms(all, r.iterations);
+        auto fitted = FitReferenceNorms(all, r.iterations, parallel);
         if (!fitted.ok()) return fitted.status();
         std::vector<std::uint8_t> centers;
         for (auto value : fitted.value().first) AppendF32(centers, value);
@@ -743,7 +891,7 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
       }
       if (population) projection = population->projection;
       else {
-        auto dots = ReferenceProjections(files, r.native_float, reference);
+        auto dots = ReferenceProjections(files, r.native_float, reference, r.parallel);
         if (!dots.ok()) return dots.status();
         projection = std::move(dots).value();
       }
@@ -788,7 +936,7 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
               std::vector<std::uint32_t> ids(count);
               for (unsigned i = 0; i < count; ++i)
                 ids[i] = LoadLittleEndianU32(records.codes.data() + i * 4U);
-              if (auto status = r.source->Read(ids, &original); !status.ok()) return status;
+              if (auto status = r.source->Read(ids, &original, parallel); !status.ok()) return status;
             } else if (auto status = files.ReadFloatSourceNorm2(cid, original);
                        !status.ok()) return status;
             for (unsigned i = 0; i < count; ++i, ++offset) {
@@ -883,7 +1031,7 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
           std::vector<std::uint32_t> ids(count);
           for (unsigned i = 0; i < count; ++i)
             ids[i] = LoadLittleEndianU32(records.codes.data() + i * 4U);
-          if (auto status = r.source->Read(ids, &original); !status.ok())
+          if (auto status = r.source->Read(ids, &original, parallel); !status.ok())
             return status;
         } else {
           original.resize(count);

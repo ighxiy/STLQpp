@@ -120,12 +120,13 @@ Status ScaledScore8Accumulator::AccumulateParallel(
   if (labels.size() != reconstruction_norm2.size() || labels.size() != source_norm2.size())
     return Status::InvalidArgument("scaled score8 rows and fixed labels disagree");
   constexpr std::size_t kMinimumRows = 262144U;
-  constexpr std::uint32_t kMaximumTasks = 8U;
-  if (labels.size() < kMinimumRows || parallel.worker_count() <= 1U)
+  constexpr std::uint32_t kMaximumTasks = 32U;
+  if (labels.size() < kMinimumRows)
     return AccumulateImpl(labels, reconstruction_norm2, source_norm2, validated_norms);
   std::array<ScaledScore8Accumulator, kMaximumTasks> partials;
   std::array<Status, kMaximumTasks> statuses;
-  const auto tasks = std::min(kMaximumTasks, parallel.worker_count());
+  // Fixed numerical shards keep the reduction independent of thread count.
+  const auto tasks = kMaximumTasks;
   struct Work {
     ArrayView<const std::uint8_t> labels;
     ArrayView<const float> reconstruction, source;

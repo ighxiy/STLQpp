@@ -17,6 +17,12 @@ namespace stlqpp {
 
 struct IndexManifest;
 
+// Caller-owned disjoint output slices; IDs are borrowed until ReadBatch joins.
+struct SourceNormRead final {
+  ArrayView<const std::uint32_t> stable_ids;
+  ArrayView<float> output;
+};
+
 // Reads norms from the exact base slice using the same format readers as base
 // encoding. Only a bounded batch of original vectors is materialized.
 class SourceNormProvider final {
@@ -28,6 +34,14 @@ class SourceNormProvider final {
 
   [[nodiscard]] Status Read(ArrayView<const std::uint32_t> stable_ids,
                             std::vector<float>* output) const;
+  [[nodiscard]] Status Read(ArrayView<const std::uint32_t> stable_ids,
+                            std::vector<float>* output,
+                            const ParallelForExecutor& parallel) const;
+
+  // Coalesce independent CID slices into one executor invocation, without
+  // concatenating IDs or staging a second norm output array.
+  [[nodiscard]] Status ReadBatch(ArrayView<const SourceNormRead> reads,
+                                 const ParallelForExecutor& parallel) const;
 
   // Shared original-vector norm cache, indexed by stable base ID. Opening it
   // never reconstructs vectors from coefficients. Scaled preparation
@@ -52,6 +66,9 @@ class SourceNormProvider final {
       : source_(std::move(source)),
         dimension_(dimension),
         source_is_u8_(source_is_u8) {}
+
+  [[nodiscard]] Status ReadRaw(const SourceNormRead& read,
+                               const ParallelForExecutor& parallel) const;
 
   std::unique_ptr<TrainingExactRowSource> source_;
   std::uint32_t dimension_ = 0U;

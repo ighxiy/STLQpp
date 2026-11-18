@@ -120,6 +120,14 @@ The paired cfg files select two code lengths for each dataset. Each cfg contains
 its input filenames, four random seeds, topology settings, coefficient widths,
 and evaluation mode. All small-dataset recipes use IVF256; BIGANN uses IVF65536.
 
+`model.m` sets the number of codebooks (2–24). Training, base encoding, and
+the AVX2 search scan kernels have compile-time specializations for **M = 5, 6,
+10, and 12**. Other supported values use runtime-width kernels, including a
+scalar search scan, so training and encoding can take longer and search QPS
+can be lower than at nearby specialized values. For a frequently used M,
+developers can specialize the
+performance-critical kernels for that width and rebuild.
+
 | Dataset | Dimension | M | Training rows | Base rows | Rounds | Config files |
 |---|---:|---|---:|---:|---:|---|
 | SIFT1M | 128 | 6 / 10 | 100,000 | 1,000,000 | 25 | [M6](configs/sift1m_m6.cfg), [M10](configs/sift1m_m10.cfg) |
@@ -140,6 +148,12 @@ cross-cluster workers, and a 20,480 MiB k-means device-cache budget**. The cache
 allocates only the required data up to this limit and is released after RVQ
 initialization. Adjust CPU threads
 and memory settings for your machine using the [resource guide](docs/CONFIGURATION.md#resources).
+
+## Choosing a rate allocation
+
+At a fixed storage budget, a longer code leaves fewer bits for its coefficients.
+Compare the measured curves for five datasets and use a small coefficient-width
+sweep to choose a configuration. [Rate allocation guide](docs/RATE_ALLOCATION.md)
 
 ## Configure a run
 

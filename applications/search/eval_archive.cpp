@@ -85,7 +85,7 @@ void AppendCurrentCodecConfig(
 
 std::uint32_t EvalNormBitsPerVector(const EvalCommand& command) noexcept {
   if (command.active_score_mode == SearchScoreMode::kMipsRecon) return 0U;
-  if (command.active_norm_mode == EvalNormMode::kLut) return 8U;
+  if (command.active_norm_mode != EvalNormMode::kFloat) return 8U;
   return command.active_score_mode == SearchScoreMode::kScaled ? 64U : 32U;
 }
 

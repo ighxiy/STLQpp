@@ -980,11 +980,25 @@ stlqpp::StatusOr<std::filesystem::path> Run(
       std::move(parallel_result).value());
   auto searcher = open_searcher(gemm, parallel, plan.value());
   if (!searcher.ok()) return searcher.status();
+  // Archive rate metadata outside query/QPS timing. Console summaries share
+  // the representation's footprint guard across all efSearch/probe runs.
+  std::optional<stlqpp::LinkageBitBudget> bit_budget;
+  {
+    const bool native_float = command.active_coefficient_mode ==
+        stlqpp::SearchCoefficientMode::kFloat;
+    auto files = stlqpp::CanonicalIndexFiles::OpenCoefficients(
+        command.index, native_float);
+    if (!files.ok()) return files.status();
+    auto budget = stlqpp::ReadEvalLinkageBitBudget(files.value(), native_float);
+    if (!budget.ok()) return budget.status();
+    bit_budget.emplace(budget.value());
+  }
   if (command.minimal_query_disk_report && command.minimal_query_disk_report->empty()) {
     auto report = QueryDiskReport(command, searcher.value()->routing_index_path());
     if (!report.ok()) return report.status();
     *command.minimal_query_disk_report = std::move(report).value();
     stlqpp::LogInfo(*command.minimal_query_disk_report);
+    stlqpp::LogInfo(stlqpp::app::FormatEvalBitBudget(command, *bit_budget));
   }
   const stlqpp::QueryBatchView query_view = {
       .data = queries.value().values.data(),
@@ -1029,20 +1043,6 @@ stlqpp::StatusOr<std::filesystem::path> Run(
         trusted_queries.value(), options, result, statistics)
         : searcher.value()->SearchTrusted(trusted_queries.value(), options, result);
   };
-  // Once per active representation, outside all query/QPS timing. Inspect CID
-  // coefficient extents and headers without decoding any vector or symbols.
-  std::optional<stlqpp::LinkageBitBudget> bit_budget;
-  {
-    const bool native_float = command.active_coefficient_mode ==
-        stlqpp::SearchCoefficientMode::kFloat;
-    auto files = stlqpp::CanonicalIndexFiles::OpenCoefficients(
-        command.index, native_float);
-    if (!files.ok()) return files.status();
-    auto budget = stlqpp::ReadEvalLinkageBitBudget(files.value(), native_float);
-    if (!budget.ok()) return budget.status();
-    bit_budget.emplace(budget.value());
-    stlqpp::LogInfo(stlqpp::app::FormatEvalBitBudget(command, *bit_budget));
-  }
   std::filesystem::path last_archive = command.run_root;
   std::vector<stlqpp::app::EvalProbeSummary> probe_summaries;
   probe_summaries.reserve(command.nprobes.size());

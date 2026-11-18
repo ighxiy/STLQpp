@@ -1,4 +1,5 @@
 #include "stlqpp/index/norm/reconstruction_norm8.h"
+#include "stlqpp/runtime/cpu/parallel_sort.h"
 
 #include <algorithm>
 #include <cassert>
@@ -194,7 +195,7 @@ ReconstructionNorm8Codebook::FitFromValidatedValues(
     const ParallelForExecutor& parallel, ReconstructionNorm8Mode mode) {
   if (values.empty() || iterations == 0U)
     return Status::InvalidArgument("norm8 fit requires values and passes");
-  std::sort(values.begin(), values.end());
+  ParallelSort(values, parallel);
   auto initialized = InitializeSorted(values, mode);
   if (!initialized.ok()) return initialized.status();
   auto result = std::move(initialized).value();
