@@ -49,9 +49,20 @@ data/deep1m/
 ```
 
 Use the 96-dimensional DEEP1B small split: one million base vectors and its
-matching 10,000-query GT. The cfg selects 500,000 training vectors. Point the
-train/base fields at the downloaded filenames, or create links with the names
-above. The formats are fvecs/ivecs.
+matching 10,000-query GT. (not 256-dimensional version)
+
+Run the linked QINCo download script with **`-small`** from the QINCo repository
+root:
+
+```bash
+bash data/deep1b/download_data.sh -small
+```
+
+Without `-small`, that script downloads the 350M-row training source and the
+one-billion-row base. The small release provides `learn10M10k.fvecs` as
+`learn.fvecs`, containing 10,010,000 training rows; the supplied configs read only
+its first 500,000 rows. Point the train/base fields at the downloaded filenames,
+or create links with the names above. The formats are fvecs/ivecs.
 
 ## Contriever1M
 
@@ -68,6 +79,29 @@ Use the QINCo `ContrieverEmb` release and its L2 ground truth. The cfg reads
 `training_set.npy` instead of a local `training_set_1M.npy`. No extra normalization
 is applied. Native NPY loading accepts C-contiguous float16/float32 vectors and
 int32/int64 GT; vectors are converted to FP32 while reading.
+
+The released `training_set.npy` is much larger than the training prefix needed
+here. Our local `training_set_1M.npy` was prepared with **HTTP Range requests**,
+without downloading the complete training array. The helper first reads the NPY
+header, then downloads only the payload for the first 1,000,000 rows. It writes a
+new, valid NPY header with shape `(1000000, 768)`, preserving the source FP16 dtype,
+row order and vector bytes. This file is approximately 1.43 GiB; the supplied cfg
+uses its first 500,000 rows. There is no resampling or extra normalization, and
+the base/query/GT files are unchanged.
+
+```bash
+python3 -m pip install numpy requests
+python3 scripts/download_contriever_train.py \
+  --rows 1000000 --output data/contriever/training_set_1M.npy
+```
+
+This is the same range-download method as `curl --range`, followed by rebuilding
+the local NPY header. **Do not simply truncate the original file**: its header
+would still declare the full remote array shape. The helper requires HTTP 206
+responses and stops if the server ignores Range, checks the downloaded payload
+length, and refuses to overwrite an existing output. The remaining release files
+can be downloaded with the linked QINCo script's individual commands; running
+that entire script also downloads the full training array.
 
 ## GloVe100: normalized, disjoint train/base
 
@@ -112,9 +146,12 @@ data/msong/
 ## OpenAI-ArXiv: 500K disjoint training split
 
 Use the `arxiv-openaiv2-2M` source, with 2,321,096 database vectors, 20,000 queries,
-and dimension 1536. The original vectors are approximately unit length; preserve
-their FP32 values. The source download names are `openai_base.bin` and
-`openai_query.bin`, both in the flat binary format below.
+and dimension 1536. This Big ANN benchmark encodes arXiv abstracts with OpenAI's
+`text-embedding-ada-002`; it is distinct from the Qdrant DBpedia datasets encoded
+with `text-embedding-3-large`. The original vectors are approximately unit length;
+preserve their FP32 values. The source download names are `openai_base.bin` and
+`openai_query.bin`, both in the flat binary format below. The `openai1536` prefix
+in the prepared filenames is a legacy name for this same OpenAI-ArXiv dataset.
 
 Use database rows `[0:500000]` for training and `[500000:]` for the base.
 Recompute exact L2 top-100 GT against the resulting 1,821,096-row base.
