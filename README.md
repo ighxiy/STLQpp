@@ -14,6 +14,8 @@ query scanning runs on the CPU. CPU and CUDA builds use the same artifact format
 - [Quick start](GUIDELINE.md): build, run SIFT1M, and evaluate an index.
 - [Datasets](docs/DATASETS.md): download sources, file layouts, and preprocessing.
 - [Configuration](docs/CONFIGURATION.md): parameters and resource settings.
+- [MIPS result](docs/MIPS.md): Although STLQ++ is not specially designed for MIPS, we compares MIPS results with ScaNN and LSQ++. 
+- [Rate allocation guide](docs/RATE_ALLOCATION.md): General performance of rate allocation between codes and coefficients.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): build, memory, paths, and evaluation.
 
 ## Build
