@@ -218,54 +218,43 @@ minimal query disk footprint to compare these allocations.
 
 ### Scoring examples and development modes
 
-`modes` selects the coefficient/score representation. `score_mode` selects the
-ranking rule. Let `h` be the reconstructed vector in the selected coefficient
-representation and `q` the query. The scan minimizes the following scores:
+Choose the ranking rule with `eval.linkage.score_mode` and the coefficient representation with `eval.linkage.modes`. Each entry in the list runs a separate evaluation. The scan ranks smaller scores first. Here `h` is the full reconstructed vector, `x` the original base vector, and `q` the query.
 
-| Setting | Ranking score, omitting query-only constants |
+| `eval.linkage.score_mode` | `eval.linkage.modes` entry | Ranking score |
+|---|---|---|
+| `l2` | `quantized`, `float` | Squared reconstruction norm minus `2(q·h)` |
+| `l2` | `quantized_scaled`, `float_scaled` | `bias − 2g(q·h)` |
+| `cosine_recon` | `quantized`, `float` | `−(q·h) / norm(h)` |
+| `mips_recon` | `quantized`, `float` | `−(q·h)` |
+| `mips_recon` | `quantized_scaled`, `float_scaled` | `−g(q·h)` |
+
+Use `[auto]` alone to run the compatible representations advertised by the index manifest. Float representations require retained float coefficients. The dataset configurations in this repository use L2 ground truth; set `dataset.groundtruth_path` to the neighbor IDs for the metric being evaluated. The choice of score applies to final linkage ranking; training and IVF routing keep their original rules.
+
+**Norm and gain.** With `eval.disk_norm2_mode = "exact"`, scaled scoring uses a per-vector gain `g = norm(x) / norm(h)` for nonzero reconstructions, and scaled L2 uses `norm(x)²` as its bias. With `"lut"`, an 8-bit label selects a fitted gain. Choose the label grouping with `eval.disk_norm2_lut_mode`:
+
+| LUT mode | Grouping and use |
 |---|---|
-| `score_mode = "l2"`, `modes = [quantized]` or `[float]` | `norm2(h) - 2 q·h` |
-| `score_mode = "l2"`, a scaled mode with `disk_norm2_mode = "lut"` | `bias[label] - 2 scale[label] q·h` |
-| `score_mode = "l2"`, a scaled mode with `disk_norm2_mode = "exact"` | `norm2(x) - 2 (norm(x) / norm(h)) q·h`, using the original vector `x` |
-| `score_mode = "cosine_recon"` | `-q·h / norm(h)`; query normalization is constant for ranking within one query. |
-| `score_mode = "mips_recon"` | `-q·h`; no reconstruction-length normalization. |
+| `identity` | Groups vectors by squared reconstruction norm. |
+| `tail_weighted` | Uses weighted norm fitting. Set `eval.linkage.gpu_norm_enable = false` when fitting this LUT. |
+| `reference` | Groups vectors by squared distance from the global reconstruction mean. L2 restores the reference projection in the score. Scaled MIPS uses the group's gain on the full inner product. Cosine uses `identity` or `tail_weighted` for LUT scoring. |
 
-The formulas describe origin-based scoring; reference-LUT mode applies the
-corresponding reference correction. Both scaled modes use label tables with
-`"lut"`, and per-row radial correction with `"exact"`; `float_scaled` refers
-to float coefficients, not automatically to exact norms.
+For MIPS, the scoring data reported in the logical rate is 0 bits/vector for plain scoring, 8 for a LUT gain label, or 32 for an exact per-row gain.
 
-`eval.disk_norm2_mode = "lut"` obtains reconstruction norms from the selected
-norm representation; `"exact"` uses per-row reconstruction norms.
-`eval.disk_norm2_lut_mode` chooses `"identity"` for ordinary norm-LUT fitting,
-`"tail_weighted"` for weighted fitting, or `"reference"` for reference-LUT L2
-scoring. CUDA norm publication supports the identity/reference paths;
-tail-weighted publication uses `eval.linkage.gpu_norm_enable = false`.
-
-For a cosine-ranking experiment, edit the evaluation fields of a dataset cfg:
+**MIPS with and without calibration.** These overrides run both scores on one quantized index. Use `[float, float_scaled]` to run the same comparison with float coefficients.
 
 ```ini
 advanced.eval_only = true
 io.linkage_file = "/data/index/linkage_list"
+dataset.groundtruth_path = "/data/mips_groundtruth.ivecs"
 eval.base.enabled = false
 eval.linkage.enabled = true
-eval.linkage.modes = [quantized]
-eval.linkage.score_mode = "cosine_recon"
+eval.linkage.score_mode = "mips_recon"
+eval.linkage.modes = [quantized, quantized_scaled]
 eval.disk_norm2_mode = "lut"
 eval.disk_norm2_lut_mode = "identity"
 ```
 
-Use `"mips_recon"` in the same example for maximum-inner-product ranking.
-The exact accepted names are `cosine_recon` and `mips_recon`, not `angle` or
-`mips`. Both work with `[float]`, `[quantized]`, or `[auto]`; scaled
-representations and the reference norm LUT use the L2 score definition.
-
-These are development scoring options, separate from the paper's L2 recipes.
-They change final candidate scoring, not the L2 reconstruction training
-objective or the IVF routing rule. Evaluate them against ground truth for the
-chosen metric. For cosine, the norm is the reconstruction's length, not the
-original vector's length; the scaled representations implement a different
-radial correction.
+For cosine ranking, set `eval.linkage.score_mode = "cosine_recon"`, choose `[quantized]` or `[float]`, and supply cosine ground truth.
 
 For an M6 coefficient-width experiment, a single entry broadcasts to all six
 layers; a six-entry array sets each layer separately:

@@ -14,7 +14,7 @@ query scanning runs on the CPU. CPU and CUDA builds use the same artifact format
 - [Quick start](GUIDELINE.md): build, run SIFT1M, and evaluate an index.
 - [Datasets](docs/DATASETS.md): download sources, file layouts, and preprocessing.
 - [Configuration](docs/CONFIGURATION.md): parameters and resource settings.
-- [MIPS result](docs/MIPS.md): Although STLQ++ is not specially designed for MIPS, we compares MIPS results with ScaNN and LSQ++. 
+- [MIPS results](docs/MIPS.md): Although STLQ++ is not specially designed for MIPS, we compares MIPS results with ScaNN and LSQ++.
 - [Rate allocation guide](docs/RATE_ALLOCATION.md): General performance of rate allocation between codes and coefficients.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): build, memory, paths, and evaluation.
 
@@ -376,9 +376,19 @@ same recipe and output/tmp locations to reuse completed work.
 - **Rate:** `payload_bit` and `total_bit` describe the encoded representation.
   `payload_bit` keeps the payload-only budget. `total_bit` includes IVF,
   amortized virtual roots, coefficient records, raw ParentLOUDS, and the active
-  norm representation. Both ordinary and scaled LUT modes count one 8-bit norm
-  label; exact scoring counts 32 bits, exact scaled scoring 64 bits, and MIPS
-  counts no norm. `ivf_bit` is already included in `total_bit`.
+  scoring data listed below. These are additional bits per vector within
+  `total_bit`, not the total rate; they are excluded from `payload_bit`.
+  `eval.disk_norm2_mode` selects the column independently of the `float` or
+  `quantized` coefficient representation. Shared lookup tables are excluded
+  from this logical per-vector budget. `ivf_bit` is already included in `total_bit`.
+
+  | Scoring mode | `lut` | `exact` |
+  |---|---|---|
+  | Plain L2 | 8-bit label | 32-bit FP32 squared reconstruction norm |
+  | Scaled L2 | 8-bit label into a gain/bias table | 64 bits: FP32 gain + FP32 original squared-norm bias, 32 bits each |
+  | Cosine | 8-bit label | 32-bit FP32 squared reconstruction norm |
+  | Plain MIPS | 0 bits | 0 bits |
+  | Scaled MIPS | 8-bit label into a gain table | 32-bit FP32 gain |
 
   Typical payload targets, with suitable coefficient widths, are:
 

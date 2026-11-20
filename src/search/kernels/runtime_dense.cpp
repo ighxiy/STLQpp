@@ -51,7 +51,7 @@ Status PrepareRuntimeDenseCluster(const RuntimeDecodedCanonicalCluster& cluster,
   if (native) {
     if (native->coefficients_layer_major.size() != nodes * shape.m ||
         native->norm2.size() != t.real_ids.size() ||
-        (mode == SearchScoreMode::kScaled &&
+        (IsScaledScoreMode(mode) &&
          native->source_norm2.size() != t.real_ids.size())) {
       return Status::DataLoss("runtime native-float record extent is invalid");
     }
@@ -63,7 +63,7 @@ Status PrepareRuntimeDenseCluster(const RuntimeDecodedCanonicalCluster& cluster,
       if (!std::isfinite(value) || value < 0)
         return Status::DataLoss("invalid float norm");
     }
-    if (mode == SearchScoreMode::kScaled && native->dot_multipliers.empty()) {
+    if (IsScaledScoreMode(mode) && native->dot_multipliers.empty()) {
       native->dot_multipliers.resize(t.real_ids.size());
       for (std::size_t row = 0; row < t.real_ids.size(); ++row) {
         auto scale = ComputeRadialScoreScale(native->source_norm2[row],
@@ -263,6 +263,20 @@ void ScoreRuntimeCanonicalClusterTrusted(
     node_dots[node] = node_dots[parent] + edge_dot;
   }
   real_scores.resize(real_count);
+  if (mode == SearchScoreMode::kMipsScaled) {
+    const float* multipliers = row_scores != nullptr
+        ? row_scores->dot_multipliers.data()
+        : native_float != nullptr ? native_float->dot_multipliers.data() : nullptr;
+    const float* dots = node_dots.data() + topology.virtual_count;
+    if (multipliers != nullptr) {
+      for (std::uint32_t real = 0U; real < real_count; ++real)
+        real_scores[real] = multipliers[real] * dots[real];
+    } else {
+      for (std::uint32_t real = 0U; real < real_count; ++real)
+        real_scores[real] = -scaled.scales[cluster.real_norm8[real]] * dots[real];
+    }
+    return;
+  }
   for (std::uint32_t real = 0U; real < real_count; ++real) {
     const float dot = node_dots[topology.virtual_count + real];
     const float norm = row_scores != nullptr ? row_scores->norm2[real]
@@ -289,6 +303,8 @@ void ScoreRuntimeCanonicalClusterTrusted(
             ? -dot * cosine_inverse_norms[cluster.real_norm8[real]]
             : -dot / std::sqrt(std::max(norm, 1.0e-20F));
         break;
+      case SearchScoreMode::kMipsScaled:
+        break;  // Gain-only loop above; never reads norm or bias.
       case SearchScoreMode::kMipsRecon:
         real_scores[real] = -dot;
         break;

@@ -86,6 +86,7 @@ void AppendCurrentCodecConfig(
 std::uint32_t EvalNormBitsPerVector(const EvalCommand& command) noexcept {
   if (command.active_score_mode == SearchScoreMode::kMipsRecon) return 0U;
   if (command.active_norm_mode != EvalNormMode::kFloat) return 8U;
+  if (command.active_score_mode == SearchScoreMode::kMipsScaled) return 32U;
   return command.active_score_mode == SearchScoreMode::kScaled ? 64U : 32U;
 }
 
@@ -355,6 +356,8 @@ std::uint64_t ComputeEvalArchiveHash(
     hash = MixString(hash, "cosine_recon-v1");
   } else if (command.active_score_mode == SearchScoreMode::kMipsRecon) {
     hash = MixString(hash, "mips_recon-v1");
+  } else if (command.active_score_mode == SearchScoreMode::kMipsScaled) {
+    hash = MixString(hash, "mips_scaled-v1");
   }
   if (command.active_representation ==
           EvalRepresentation::kQuantizedScaled ||
@@ -565,7 +568,7 @@ StatusOr<std::filesystem::path> ArchiveEvalResult(
          << "# linkage_score_mode="
          << (command.active_score_mode == SearchScoreMode::kCosineRecon
                  ? "cosine_recon"
-                 : command.active_score_mode == SearchScoreMode::kMipsRecon
+                 : IsMipsScoreMode(command.active_score_mode)
                        ? "mips_recon" : "l2") << '\n'
          << "# disk_norm2_mode="
          << EvalNormModeName(command.active_norm_mode) << '\n'

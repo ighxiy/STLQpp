@@ -77,12 +77,12 @@ RuntimeExactDenseSearcher::Create(
          parent_mode != ParentAccessMode::kMaterialized) ||
         (coefficient_mode != SearchCoefficientMode::kInt8 && !floating) ||
         (score_mode != SearchScoreMode::kClassic &&
-         score_mode != SearchScoreMode::kScaled &&
+         !IsScaledScoreMode(score_mode) &&
          score_mode != SearchScoreMode::kCosineRecon &&
          score_mode != SearchScoreMode::kMipsRecon))
       return Status::InvalidArgument(
           "runtime index options or record counts are invalid");
-    if (!floating && score_mode == SearchScoreMode::kScaled &&
+    if (!floating && IsScaledScoreMode(score_mode) &&
         !scaled.enabled() && row_scores.clusters.empty())
       return Status::FailedPrecondition(
           "runtime scaled search requires a scale/bias table");
@@ -148,6 +148,14 @@ RuntimeExactDenseSearcher::Create(
           output->norm8_inverse_norms_.begin(),
           [](float norm) { return 1.0F / std::sqrt(std::max(norm, 1.0e-20F)); });
     }
+    // The prepared L2 cache stores -2*gain. Convert owned row arrays once;
+    // the runtime scan then performs exactly one multiplier per MIPS score.
+    if (score_mode == SearchScoreMode::kMipsScaled) {
+      for (auto& scores : row_scores.clusters)
+        for (float& value : scores.dot_multipliers) value *= 0.5F;
+      for (auto& cluster : native)
+        for (float& value : cluster.dot_multipliers) value *= 0.5F;
+    }
     output->coefficient_mode_ = coefficient_mode;
     output->score_mode_ = score_mode;
     output->native_float_ = std::move(native);
@@ -180,7 +188,7 @@ RuntimeExactDenseSearcher::Open(
     const bool floating = coefficient_mode == SearchCoefficientMode::kFloat;
     auto opened = row_scores != nullptr
         ? CanonicalIndexFiles::OpenCoefficients(directory, floating)
-        : floating ? (score_mode == SearchScoreMode::kScaled
+        : floating ? (IsScaledScoreMode(score_mode)
                         ? CanonicalIndexFiles::OpenNativeFloatScaled(directory)
                         : CanonicalIndexFiles::OpenNativeFloat(directory))
                  : CanonicalIndexFiles::OpenQuantized(directory);
@@ -189,11 +197,11 @@ RuntimeExactDenseSearcher::Open(
     const auto shape = files.manifest().shape;
     if (row_scores != nullptr && row_scores->clusters.size() != shape.nlist)
       return Status::DataLoss("evaluation norm CID count disagrees with index");
-    if (row_scores == nullptr && !floating && score_mode == SearchScoreMode::kScaled &&
+    if (row_scores == nullptr && !floating && IsScaledScoreMode(score_mode) &&
         !files.manifest().has_scaled_score8())
       return Status::FailedPrecondition(
           "runtime scaled search requires scaled score8");
-    if (row_scores == nullptr && !floating && score_mode != SearchScoreMode::kScaled &&
+    if (row_scores == nullptr && !floating && !IsScaledScoreMode(score_mode) &&
         !files.manifest().has_classic_norm8())
       return Status::FailedPrecondition(
           "runtime quantized search requires classic norm8");
@@ -233,10 +241,10 @@ RuntimeExactDenseSearcher::Open(
           return s;
         if (row_scores != nullptr) v.norm2 = row_scores->clusters[cid].norm2;
         else if (const auto s = files.ReadFloatNorm2(cid, v.norm2); !s.ok()) return s;
-        if (row_scores != nullptr && score_mode == SearchScoreMode::kScaled) {
+        if (row_scores != nullptr && IsScaledScoreMode(score_mode)) {
           v.source_norm2 = row_scores->clusters[cid].biases;
           v.dot_multipliers = row_scores->clusters[cid].dot_multipliers;
-        } else if (score_mode == SearchScoreMode::kScaled) {
+        } else if (IsScaledScoreMode(score_mode)) {
           v.source_norm2.resize(entry.real_count);
           if (const auto s = files.ReadFloatSourceNorm2(cid, v.source_norm2);
               !s.ok())
@@ -260,7 +268,7 @@ RuntimeExactDenseSearcher::Open(
       const auto norm8 = files.norm8();
       if (row_scores != nullptr) centers.assign(256U, 0.0F);
       else centers.assign(norm8.centers, norm8.centers + norm8.center_count);
-      if (row_scores == nullptr && score_mode == SearchScoreMode::kScaled) {
+      if (row_scores == nullptr && IsScaledScoreMode(score_mode)) {
         const auto view = files.scaled_score8();
         auto table = ScaledScore8Codebook::Create(
             {view.scales, view.center_count}, {view.biases, view.center_count});

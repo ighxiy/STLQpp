@@ -881,7 +881,7 @@ Status BindEvalCommandToIndex(
     if (manifest.has_float_forest()) {
       command.representation_runs.push_back(EvalRepresentation::kFloat);
     }
-    if (command.requested_score_mode == SearchScoreMode::kClassic &&
+    if (command.requested_score_mode != SearchScoreMode::kCosineRecon &&
         manifest.has_float_source_norm2()) {
       command.representation_runs.push_back(
           EvalRepresentation::kFloatScaled);
@@ -889,7 +889,7 @@ Status BindEvalCommandToIndex(
     if (manifest.has_classic_norm8()) {
       command.representation_runs.push_back(EvalRepresentation::kQuantized);
     }
-    if (command.requested_score_mode == SearchScoreMode::kClassic &&
+    if (command.requested_score_mode != SearchScoreMode::kCosineRecon &&
         manifest.has_scaled_score8()) {
       command.representation_runs.push_back(
           EvalRepresentation::kQuantizedScaled);
@@ -897,11 +897,11 @@ Status BindEvalCommandToIndex(
   }
   for (const EvalRepresentation representation :
        command.requested_representations) {
-    if (command.requested_score_mode != SearchScoreMode::kClassic &&
+    if (command.requested_score_mode == SearchScoreMode::kCosineRecon &&
         (representation == EvalRepresentation::kFloatScaled ||
          representation == EvalRepresentation::kQuantizedScaled)) {
       return Status::InvalidArgument(
-          "angular eval.linkage.score_mode requires "
+          "cosine eval.linkage.score_mode requires "
           "eval.linkage.modes=[float], [quantized], or [auto]; "
           "scaled representations use a different score definition");
     }
@@ -1065,13 +1065,18 @@ Status BindEvalCommandToIndex(
                      return std::abs(a - b) <= 1.0e-12;
                    });
   };
-  if (!command.independent_quantized_norms && command.expected_norm8_lloyd_iterations.has_value() &&
+  const bool uses_quantized_norm_lut =
+      command.requested_norm_mode != EvalNormMode::kFloat &&
+      (command.requested_score_mode != SearchScoreMode::kMipsRecon ||
+       std::find(command.representation_runs.begin(), command.representation_runs.end(),
+                 EvalRepresentation::kQuantizedScaled) != command.representation_runs.end());
+  if (uses_quantized_norm_lut && !command.independent_quantized_norms && command.expected_norm8_lloyd_iterations.has_value() &&
       *command.expected_norm8_lloyd_iterations !=
           recipe.norm8_lloyd_iterations) {
     return Status::FailedPrecondition(
         "eval norm8 iteration assertion disagrees with index producer");
   }
-  if (!command.independent_quantized_norms && command.expected_norm8_mode.has_value() &&
+  if (uses_quantized_norm_lut && !command.independent_quantized_norms && command.expected_norm8_mode.has_value() &&
       *command.expected_norm8_mode != recipe.norm8_mode) {
     return Status::FailedPrecondition(
         "eval norm8 mode assertion disagrees with index producer");
@@ -1142,14 +1147,16 @@ Status SelectEvalRepresentation(
       representation == EvalRepresentation::kFloatScaled ||
       representation == EvalRepresentation::kQuantizedScaled;
   if (is_scaled &&
-      command.requested_score_mode != SearchScoreMode::kClassic) {
+      command.requested_score_mode == SearchScoreMode::kCosineRecon) {
     return Status::InvalidArgument(
-        "cosine_recon/mips_recon cannot use a scaled representation");
+        "cosine_recon cannot use a scaled representation");
   }
   command.active_coefficient_mode = is_float
       ? SearchCoefficientMode::kFloat : SearchCoefficientMode::kInt8;
   command.active_score_mode = is_scaled
-      ? SearchScoreMode::kScaled : command.requested_score_mode;
+      ? (command.requested_score_mode == SearchScoreMode::kMipsRecon
+             ? SearchScoreMode::kMipsScaled : SearchScoreMode::kScaled)
+      : command.requested_score_mode;
   command.active_norm_mode = command.requested_norm_mode.value_or(EvalNormMode::kLut);
   if (command.active_norm_mode == EvalNormMode::kLut &&
       command.expected_norm8_mode.value_or(ReconstructionNorm8Mode::kIdentityLloyd) == ReconstructionNorm8Mode::kTailWeightedLloyd)
@@ -1159,8 +1166,9 @@ Status SelectEvalRepresentation(
     command.active_norm_mode = EvalNormMode::kLutReference;
   if (command.active_norm_mode == EvalNormMode::kLutReference &&
       command.active_score_mode != SearchScoreMode::kClassic &&
-      command.active_score_mode != SearchScoreMode::kScaled)
-    return Status::InvalidArgument("reference norm LUT requires L2 scoring");
+      !IsScaledScoreMode(command.active_score_mode) &&
+      !IsMipsScoreMode(command.active_score_mode))
+    return Status::InvalidArgument("reference norm LUT requires L2 or MIPS scoring");
   const bool float_norm = command.active_norm_mode == EvalNormMode::kFloat;
   command.active_score_codec = float_norm
       ? (is_float ? (is_scaled ? EvalScoreCodec::kFloatScaled : EvalScoreCodec::kNativeFloat)

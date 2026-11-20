@@ -197,6 +197,11 @@ Status ResidentCluster<M>::ConfigureRowScores(const ClusterRowScores& scores) {
 }
 
 template <int M>
+void ResidentCluster<M>::PrepareMipsScaledScores() noexcept {
+  for (float& multiplier : float_scores_.dot_multipliers) multiplier *= 0.5F;
+}
+
+template <int M>
 std::size_t ResidentCluster<M>::logical_resident_bytes() const noexcept {
   return root_payload_.size() + linked_payload_.size() + real_norm8_.size() +
          real_ids_.size() * sizeof(real_ids_[0]) +

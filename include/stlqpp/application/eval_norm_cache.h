@@ -19,6 +19,8 @@ struct EvalNormCacheRequest final {
   bool native_float = false;
   bool float_norm = false;
   bool scaled = false;
+  // MIPS consumes the gain only; reference corrections and L2 bias are unused.
+  bool gain_only = false;
   bool use_cuda = false;
   bool cuda_compute_allowed = true;
   int cuda_device = 0;

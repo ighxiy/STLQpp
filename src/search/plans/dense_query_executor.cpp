@@ -184,16 +184,17 @@ void DenseQueryExecutor<M>::SearchTrustedImpl(
     routes = workspace->routes_.selected();
   }
   if (index_->score_mode() == SearchScoreMode::kCosineRecon ||
-      index_->score_mode() == SearchScoreMode::kMipsRecon) {
+      IsMipsScoreMode(index_->score_mode())) {
     const bool normalize =
         index_->score_mode() == SearchScoreMode::kCosineRecon;
+    const bool mips_scaled = index_->score_mode() == SearchScoreMode::kMipsScaled;
     if (index_->coefficient_mode() == SearchCoefficientMode::kFloat) {
       for (const std::uint32_t cid : routes) {
         const ResidentCluster<M>& cluster = index_->cluster(cid);
         if (cluster.empty()) continue;
         ScanFloatAngularDenseAvx2(
             query, cluster.float_view(), &workspace->top_k_,
-            workspace->dot_scratch_.data(), normalize);
+            workspace->dot_scratch_.data(), normalize, mips_scaled);
       }
     } else {
       const Norm8CodebookView norm8 = index_->norm8();
@@ -201,9 +202,9 @@ void DenseQueryExecutor<M>::SearchTrustedImpl(
         const ResidentCluster<M>& cluster = index_->cluster(cid);
         if (cluster.empty()) continue;
         PrepareAndScanAngularDenseAvx2(
-            query, cluster.view(norm8, {}), &workspace->scaled_tables_,
+            query, cluster.view(norm8, index_->scaled_score()), &workspace->scaled_tables_,
             &workspace->top_k_, workspace->dot_scratch_.data(), normalize,
-            index_->cosine_inverse_norms());
+            index_->cosine_inverse_norms(), mips_scaled);
       }
     }
     if constexpr (DirectOutput) {

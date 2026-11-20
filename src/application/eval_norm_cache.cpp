@@ -889,12 +889,19 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
           return Status::DataLoss("invalid norm2 reference vector");
         reference_norm2 += double(reference[axis])*reference[axis];
       }
+    }
+    const auto prepare_projection = [&]() -> Status {
+      if (!projection.empty() || rows == 0U) return Status::Ok();
       if (population) projection = population->projection;
       else {
         auto dots = ReferenceProjections(files, r.native_float, reference, r.parallel);
         if (!dots.ok()) return dots.status();
         projection = std::move(dots).value();
       }
+      return Status::Ok();
+    };
+    if (reference_mode && !r.gain_only) {
+      if (auto status = prepare_projection(); !status.ok()) return status;
     }
     std::vector<std::uint8_t> scale;
     bool scale_hit = true;
@@ -948,6 +955,9 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
           }
         } else {
           if (auto status = reconstruct(); !status.ok()) return status;
+          if (reference_mode) {
+            if (auto status = prepare_projection(); !status.ok()) return status;
+          }
           std::array<float, 256> centers{};
           for (unsigned l = 0; l < 256; ++l)
             centers[l] = LoadLittleEndianF32(norm.value().data() + l * 4U);
@@ -1001,10 +1011,10 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
     } else {
       out.query_payloads.push_back(scale_path);
       if (!r.float_norm) out.query_payloads.push_back(directory / "norm2_labels.u8");
-      if (reference_mode) out.query_payloads.push_back(directory / "reference_vector.f32");
+      if (reference_mode && !r.gain_only) out.query_payloads.push_back(directory / "reference_vector.f32");
       // Exact scaled scoring needs the original per-row bias, while LUT
       // scaled scoring carries its bias in the gain/bias table.
-      if (r.float_norm) out.query_payloads.push_back(r.source->cache_path());
+      if (r.float_norm && !r.gain_only) out.query_payloads.push_back(r.source->cache_path());
     }
     out.cache_hit = norm_hit && scale_hit;
     std::uint64_t hash = 0;
@@ -1019,13 +1029,13 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
       auto& scores = out.scores.clusters[cid];
       const auto count = files.entry(cid).real_count;
       scores.norm2.resize(count);
-      scores.has_reference_correction = reference_mode;
+      scores.has_reference_correction = reference_mode && !r.gain_only;
       std::vector<float> original;
       if (r.scaled) {
         scores.biases.resize(count);
         scores.dot_multipliers.resize(count);
       }
-      if (r.scaled && r.float_norm) {
+      if (r.scaled && r.float_norm && !r.gain_only) {
         if (r.source) {
           auto records = files.topology_records(cid);
           std::vector<std::uint32_t> ids(count);
@@ -1046,20 +1056,19 @@ StatusOr<PreparedEvalNormCache> PrepareEvalNormCache(
             norm.value().data() + (r.float_norm ? row_offset : label) * 4U);
         if (!std::isfinite(n) || n < 0)
           return Status::DataLoss("invalid norm2 cache value");
-        scores.norm2[i] = reference_mode
+        scores.norm2[i] = r.gain_only ? 0.0F : reference_mode
             ? static_cast<float>(n + 2.0*projection[row_offset] - reference_norm2) : n;
         if (r.scaled) {
           const auto gain = LoadLittleEndianF32(
               scale.data() + (r.float_norm ? row_offset : label * 2U) * 4U);
-          const auto bias =
-              r.float_norm
+          const auto bias = r.gain_only ? 0.0F : r.float_norm
                   ? original[i]
                   : LoadLittleEndianF32(scale.data() + (label * 2U + 1U) * 4U);
           if (!std::isfinite(-2.0F * gain) || gain < 0 ||
               !std::isfinite(bias) || (!reference_mode && bias < 0))
             return Status::DataLoss("invalid norm2 scale/bias");
           scores.dot_multipliers[i] = -2.0F * gain;
-          scores.biases[i] = reference_mode
+          scores.biases[i] = !r.gain_only && reference_mode
               ? static_cast<float>(bias + 2.0*gain*projection[row_offset] - reference_norm2) : bias;
         }
       }

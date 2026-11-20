@@ -40,7 +40,7 @@ StatusOr<ResidentIndex<M>> ResidentIndex<M>::Create(
     }
   }
   const bool table_scaled = coefficient_mode == SearchCoefficientMode::kInt8 &&
-      score_mode == SearchScoreMode::kScaled &&
+      IsScaledScoreMode(score_mode) &&
       !std::all_of(clusters.begin(), clusters.end(), [](const auto& cluster) {
         return cluster.empty() || cluster.has_float_scaled_scores();
       });
@@ -84,7 +84,9 @@ StatusOr<ResidentIndex<M>> ResidentIndex<M>::Create(
         scaled_score8.scales,
         scaled_score8.scales + scaled_score8.center_count,
         output.scaled_score_dot_multipliers_.begin(),
-        [](float scale) noexcept { return -2.0F * scale; });
+        [score_mode](float scale) noexcept {
+          return (score_mode == SearchScoreMode::kMipsScaled ? -1.0F : -2.0F) * scale;
+        });
   }
   output.clusters_ = std::move(clusters);
   output.coefficient_mode_ = coefficient_mode;
@@ -108,7 +110,7 @@ StatusOr<ResidentIndex<M>> ResidentIndex<M>::Create(
     }
     if (!cluster.empty() &&
         coefficient_mode == SearchCoefficientMode::kFloat &&
-        (score_mode == SearchScoreMode::kScaled) !=
+        (IsScaledScoreMode(score_mode)) !=
             cluster.has_float_scaled_scores()) {
       return Status::DataLoss(
           "float resident radial-score capability disagrees with index mode");
@@ -143,6 +145,9 @@ StatusOr<ResidentIndex<M>> ResidentIndex<M>::Create(
               : saw_u32_parent
                   ? MaterializedParentWidth::kU32
                   : MaterializedParentWidth::kNone;
+  if (score_mode == SearchScoreMode::kMipsScaled) {
+    for (auto& cluster : output.clusters_) cluster.PrepareMipsScaledScores();
+  }
   return output;
 }
 

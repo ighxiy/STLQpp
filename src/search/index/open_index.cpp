@@ -31,7 +31,7 @@ StatusOr<CanonicalIndexFiles> OpenCheckedIndexFiles(
   auto files_result = external_norms
       ? CanonicalIndexFiles::OpenCoefficients(directory, coefficient_mode == SearchCoefficientMode::kFloat)
       : coefficient_mode == SearchCoefficientMode::kFloat
-      ? (score_mode == SearchScoreMode::kScaled
+      ? (IsScaledScoreMode(score_mode)
              ? CanonicalIndexFiles::OpenNativeFloatScaled(directory)
              : CanonicalIndexFiles::OpenNativeFloat(directory))
       : CanonicalIndexFiles::OpenQuantized(directory);
@@ -42,13 +42,13 @@ StatusOr<CanonicalIndexFiles> OpenCheckedIndexFiles(
         "canonical index M does not match the selected product decoder");
   }
   if (!external_norms && coefficient_mode == SearchCoefficientMode::kInt8 &&
-      score_mode != SearchScoreMode::kScaled &&
+      !IsScaledScoreMode(score_mode) &&
       !files.manifest().has_classic_norm8()) {
     return Status::FailedPrecondition(
         "classic quantized search requested but the index has no classic norm8 representation");
   }
   if (!external_norms && coefficient_mode == SearchCoefficientMode::kInt8 &&
-      score_mode == SearchScoreMode::kScaled &&
+      IsScaledScoreMode(score_mode) &&
       !files.manifest().has_scaled_score8()) {
     return Status::FailedPrecondition(
         "scaled quantized search requested but the index has no scaled score8 table");
@@ -88,7 +88,7 @@ StatusOr<FloatClusterValues> LoadFloatClusterValues(
         ? (scores->has_reference_correction ? 0.0F : scores->norm2[row])
         : LoadLittleEndianF32(records.norm2.data() + row * sizeof(float));
   }
-  if (scores == nullptr && score_mode == SearchScoreMode::kScaled) {
+  if (scores == nullptr && IsScaledScoreMode(score_mode)) {
     values.source_norms.resize(entry.real_count);
     if (const Status status = files.ReadFloatSourceNorm2(
             cid, values.source_norms); !status.ok()) return status;
@@ -204,7 +204,7 @@ StatusOr<std::shared_ptr<const ResidentIndex<M>>> OpenIndex(
     if (coefficient_mode == SearchCoefficientMode::kInt8) {
       norm8_centers.assign(
           norms.centers, norms.centers + norms.center_count);
-      if (row_scores == nullptr && score_mode == SearchScoreMode::kScaled) {
+      if (row_scores == nullptr && IsScaledScoreMode(score_mode)) {
         scaled_score8 = files.scaled_score8();
       }
     }

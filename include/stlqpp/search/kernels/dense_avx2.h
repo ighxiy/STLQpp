@@ -16,7 +16,7 @@ struct DenseIntScanTiming final {
 };
 
 // Eval-only cosine/MIPS dot-product scanners. The production L2/scaled
-// kernels remain unchanged; normalize controls only final row scoring.
+// kernels remain unchanged; normalize/mips_scaled select final scoring only.
 template <int M>
 void PrepareAndScanAngularDenseAvx2(
     const TrustedQueryTables<M>& query,
@@ -24,7 +24,8 @@ void PrepareAndScanAngularDenseAvx2(
     ScaledClusterQueryTables<M>* __restrict scaled_query,
     QueryTopK* __restrict top_k,
     float* __restrict dot_scratch,
-    bool normalize, const float* cosine_inverse_norms = nullptr) noexcept;
+    bool normalize, const float* cosine_inverse_norms = nullptr,
+    bool mips_scaled = false) noexcept;
 
 template <int M>
 void ScanFloatAngularDenseAvx2(
@@ -32,7 +33,7 @@ void ScanFloatAngularDenseAvx2(
     const FloatResidentClusterView<M>& cluster,
     QueryTopK* __restrict top_k,
     float* __restrict dot_scratch,
-    bool normalize) noexcept;
+    bool normalize, bool mips_scaled = false) noexcept;
 
 // Compatibility/reference entry point for callers that already hold scaled
 // tables. It retains the pre-existing native ParentLOUDS behavior.
@@ -286,32 +287,32 @@ extern template void ScanDenseAvx2<10>(
 extern template void PrepareAndScanAngularDenseAvx2<5>(
     const TrustedQueryTables<5>&, const ResidentClusterView<5>&,
     ScaledClusterQueryTables<5>* __restrict, QueryTopK* __restrict,
-    float* __restrict, bool, const float*) noexcept;
+    float* __restrict, bool, const float*, bool) noexcept;
 extern template void ScanFloatAngularDenseAvx2<5>(
     const TrustedQueryTables<5>&, const FloatResidentClusterView<5>&,
-    QueryTopK* __restrict, float* __restrict, bool) noexcept;
+    QueryTopK* __restrict, float* __restrict, bool, bool) noexcept;
 
 extern template void PrepareAndScanAngularDenseAvx2<6>(
     const TrustedQueryTables<6>&, const ResidentClusterView<6>&,
     ScaledClusterQueryTables<6>* __restrict, QueryTopK* __restrict,
-    float* __restrict, bool, const float*) noexcept;
+    float* __restrict, bool, const float*, bool) noexcept;
 extern template void ScanFloatAngularDenseAvx2<6>(
     const TrustedQueryTables<6>&, const FloatResidentClusterView<6>&,
-    QueryTopK* __restrict, float* __restrict, bool) noexcept;
+    QueryTopK* __restrict, float* __restrict, bool, bool) noexcept;
 
 extern template void PrepareAndScanAngularDenseAvx2<10>(
     const TrustedQueryTables<10>&, const ResidentClusterView<10>&,
     ScaledClusterQueryTables<10>* __restrict, QueryTopK* __restrict,
-    float* __restrict, bool, const float*) noexcept;
+    float* __restrict, bool, const float*, bool) noexcept;
 extern template void ScanFloatAngularDenseAvx2<10>(
     const TrustedQueryTables<10>&, const FloatResidentClusterView<10>&,
-    QueryTopK* __restrict, float* __restrict, bool) noexcept;
+    QueryTopK* __restrict, float* __restrict, bool, bool) noexcept;
 
 extern template void PrepareAndScanAngularDenseAvx2<12>(
     const TrustedQueryTables<12>&, const ResidentClusterView<12>&,
     ScaledClusterQueryTables<12>* __restrict, QueryTopK* __restrict,
-    float* __restrict, bool, const float*) noexcept;
+    float* __restrict, bool, const float*, bool) noexcept;
 extern template void ScanFloatAngularDenseAvx2<12>(
     const TrustedQueryTables<12>&, const FloatResidentClusterView<12>&,
-    QueryTopK* __restrict, float* __restrict, bool) noexcept;
+    QueryTopK* __restrict, float* __restrict, bool, bool) noexcept;
 }  // namespace stlqpp

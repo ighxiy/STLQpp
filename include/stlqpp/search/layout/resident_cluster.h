@@ -299,6 +299,8 @@ class ResidentCluster final {
   [[nodiscard]] FloatResidentClusterView<M> float_view() const noexcept;
   [[nodiscard]] Status ConfigureParentAccess(ParentAccessMode mode);
   [[nodiscard]] Status ConfigureRowScores(const ClusterRowScores& scores);
+  // Loading only: L2 stores -2*gain; MIPS consumes -gain directly.
+  void PrepareMipsScaledScores() noexcept;
 
  private:
   template <int N>

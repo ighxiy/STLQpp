@@ -907,16 +907,18 @@ STLQPP_DENSE_ALWAYS_INLINE void ScoreFloatRealRowsScaled(
 
 // Cosine uses the reconstructed norm; MIPS uses the same computed dots but
 // does not normalize. Neither path changes the L2/scaled scan loops.
-template <bool Normalize, bool InverseNorm = false, typename NormAt>
+template <bool Normalize, bool InverseNorm = false, bool MipsScaled = false,
+          typename NormAt>
 STLQPP_DENSE_ALWAYS_INLINE void ScoreAngularRealRows(
     const std::uint32_t* __restrict ids,
     const float* __restrict dots, std::uint32_t count, NormAt norm_at,
     QueryTopK* __restrict top_k) noexcept {
   [[maybe_unused]] constexpr float kMinNorm2 = 1e-20F;
-  if constexpr (!Normalize) (void)norm_at;
+  if constexpr (!Normalize && !MipsScaled) (void)norm_at;
   std::uint32_t pos = 0U;
   while (pos < count && !top_k->full()) {
     float score = -dots[pos];
+    if constexpr (MipsScaled) score = dots[pos] * norm_at(pos);
     if constexpr (Normalize) {
       if constexpr (InverseNorm) score *= norm_at(pos);
       else score /= std::sqrt(std::max(norm_at(pos), kMinNorm2));
@@ -932,6 +934,13 @@ STLQPP_DENSE_ALWAYS_INLINE void ScoreAngularRealRows(
   const __m256 zero = _mm256_setzero_ps();
   for (; pos + 8U <= count; pos += 8U) {
     __m256 score = _mm256_sub_ps(zero, _mm256_loadu_ps(dots + pos));
+    if constexpr (MipsScaled) {
+      const __m256 multipliers = _mm256_setr_ps(
+          norm_at(pos), norm_at(pos + 1U), norm_at(pos + 2U),
+          norm_at(pos + 3U), norm_at(pos + 4U), norm_at(pos + 5U),
+          norm_at(pos + 6U), norm_at(pos + 7U));
+      score = _mm256_mul_ps(_mm256_loadu_ps(dots + pos), multipliers);
+    }
     if constexpr (Normalize) {
       [[maybe_unused]] const __m256 minimum = _mm256_set1_ps(kMinNorm2);
       const __m256 norm2 = _mm256_setr_ps(
@@ -962,6 +971,7 @@ STLQPP_DENSE_ALWAYS_INLINE void ScoreAngularRealRows(
   }
   for (; pos < count; ++pos) {
     float candidate = -dots[pos];
+    if constexpr (MipsScaled) candidate = dots[pos] * norm_at(pos);
     if constexpr (Normalize) {
       if constexpr (InverseNorm) candidate *= norm_at(pos);
       else candidate /= std::sqrt(std::max(norm_at(pos), kMinNorm2));
@@ -1284,9 +1294,9 @@ void PrepareAndScanAngularDenseAvx2(
     ScaledClusterQueryTables<M>* __restrict scaled_query,
     QueryTopK* __restrict top_k,
     float* __restrict dot_scratch,
-    bool normalize, const float* cosine_inverse_norms) noexcept {
-  assert(cluster.scaled_score_dot_multipliers() == nullptr &&
-      cluster.row_dot_multipliers() == nullptr);
+    bool normalize, const float* cosine_inverse_norms, bool mips_scaled) noexcept {
+  assert(mips_scaled || (cluster.scaled_score_dot_multipliers() == nullptr &&
+      cluster.row_dot_multipliers() == nullptr));
   PrepareScaledClusterQueryTables(query, cluster, scaled_query);
   ComputeRootDots(cluster, *scaled_query, dot_scratch);
   if (cluster.parent_1based_u16() != nullptr) {
@@ -1298,7 +1308,23 @@ void PrepareAndScanAngularDenseAvx2(
   } else {
     ComputeLinkedDotsNativeLouds(cluster, *scaled_query, dot_scratch);
   }
-  if (normalize) {
+  if (mips_scaled) {
+    if (const float* rows = cluster.row_dot_multipliers(); rows != nullptr) {
+      ScoreAngularRealRows<false, false, true>(
+          cluster.real_ids(), dot_scratch + cluster.virtual_count(),
+          cluster.real_count(), [rows](std::uint32_t row) noexcept {
+            return rows[row];
+          }, top_k);
+    } else {
+      const auto* labels = cluster.real_norm8();
+      const auto* multipliers = cluster.scaled_score_dot_multipliers();
+      ScoreAngularRealRows<false, false, true>(
+          cluster.real_ids(), dot_scratch + cluster.virtual_count(),
+          cluster.real_count(), [labels, multipliers](std::uint32_t row) noexcept {
+            return multipliers[labels[row]];
+          }, top_k);
+    }
+  } else if (normalize) {
     const std::uint8_t* labels = cluster.real_norm8();
     const float* centers = cluster.norm8_centers();
     const float* rows = cluster.row_norm2();
@@ -1331,7 +1357,7 @@ void ScanFloatAngularDenseAvx2(
     const FloatResidentClusterView<M>& cluster,
     QueryTopK* __restrict top_k,
     float* __restrict dot_scratch,
-    bool normalize) noexcept {
+    bool normalize, bool mips_scaled) noexcept {
   ComputeFloatRootDots(cluster, query, dot_scratch);
   if (cluster.parent_1based_u16() != nullptr) {
     ComputeFloatLinkedDotsMaterialized(
@@ -1342,7 +1368,14 @@ void ScanFloatAngularDenseAvx2(
   } else {
     ComputeFloatLinkedDotsNativeLouds(cluster, query, dot_scratch);
   }
-  if (normalize) {
+  if (mips_scaled) {
+    const float* multipliers = cluster.scaled_score_dot_multipliers();
+    ScoreAngularRealRows<false, false, true>(
+        cluster.real_ids(), dot_scratch + cluster.virtual_count(),
+        cluster.real_count(), [multipliers](std::uint32_t row) noexcept {
+          return multipliers[row];
+        }, top_k);
+  } else if (normalize) {
     const float* norms = cluster.real_norm2();
     ScoreAngularRealRows<true>(
         cluster.real_ids(), dot_scratch + cluster.virtual_count(),
@@ -1360,10 +1393,10 @@ void ScanFloatAngularDenseAvx2(
   template void PrepareAndScanAngularDenseAvx2<m>( \
       const TrustedQueryTables<m>&, const ResidentClusterView<m>&, \
       ScaledClusterQueryTables<m>* __restrict, QueryTopK* __restrict, \
-      float* __restrict, bool, const float*) noexcept; \
+      float* __restrict, bool, const float*, bool) noexcept; \
   template void ScanFloatAngularDenseAvx2<m>( \
       const TrustedQueryTables<m>&, const FloatResidentClusterView<m>&, \
-      QueryTopK* __restrict, float* __restrict, bool) noexcept;
+      QueryTopK* __restrict, float* __restrict, bool, bool) noexcept;
 STLQPP_INSTANTIATE_ANGULAR_SCAN(5)
 STLQPP_INSTANTIATE_ANGULAR_SCAN(6)
 STLQPP_INSTANTIATE_ANGULAR_SCAN(10)

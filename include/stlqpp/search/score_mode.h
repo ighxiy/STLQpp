@@ -9,10 +9,19 @@ enum class SearchScoreMode : std::uint8_t {
   kScaled,
   kCosineRecon,
   kMipsRecon,
+  kMipsScaled,
 };
 
-// Resident hot-path table. Dot multipliers are precomputed as -2*scale so
-// the AVX2 loop performs one FMA per row and no separate scale multiply.
+[[nodiscard]] constexpr bool IsScaledScoreMode(SearchScoreMode mode) noexcept {
+  return mode == SearchScoreMode::kScaled || mode == SearchScoreMode::kMipsScaled;
+}
+
+[[nodiscard]] constexpr bool IsMipsScoreMode(SearchScoreMode mode) noexcept {
+  return mode == SearchScoreMode::kMipsRecon || mode == SearchScoreMode::kMipsScaled;
+}
+
+// Resident tables: -2*gain for scaled L2, -gain for scaled MIPS.
+// The L2 loop uses an FMA; the independent MIPS loop only multiplies.
 struct ScaledScoreTableView final {
   const float* dot_multipliers = nullptr;
   const float* biases = nullptr;

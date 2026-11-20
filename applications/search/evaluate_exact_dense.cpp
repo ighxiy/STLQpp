@@ -565,8 +565,8 @@ stlqpp::Status EnsureRequestedRepresentations(
   if (!command.linkage_enabled) {
     return stlqpp::Status::Ok();
   }
-  if (command.requested_score_mode !=
-          stlqpp::SearchScoreMode::kClassic &&
+  if (command.requested_score_mode ==
+          stlqpp::SearchScoreMode::kCosineRecon &&
       std::any_of(command.requested_representations.begin(),
                   command.requested_representations.end(),
                   [](stlqpp::EvalRepresentation value) {
@@ -585,14 +585,14 @@ stlqpp::Status EnsureRequestedRepresentations(
         case stlqpp::EvalRepresentation::kFloat:
           return manifest->has_float_forest();
         case stlqpp::EvalRepresentation::kFloatScaled:
-          return command.requested_score_mode ==
-                     stlqpp::SearchScoreMode::kClassic &&
+          return command.requested_score_mode !=
+                     stlqpp::SearchScoreMode::kCosineRecon &&
                  manifest->has_float_source_norm2();
         case stlqpp::EvalRepresentation::kQuantized:
           return manifest->has_classic_norm8();
         case stlqpp::EvalRepresentation::kQuantizedScaled:
-          return command.requested_score_mode ==
-                     stlqpp::SearchScoreMode::kClassic &&
+          return command.requested_score_mode !=
+                     stlqpp::SearchScoreMode::kCosineRecon &&
                  manifest->has_scaled_score8();
       }
     }
@@ -627,7 +627,7 @@ stlqpp::Status EnsureRequestedRepresentations(
        !norm8_present || !lut_present ||
        (quantized_scaled && manifest->has_scaled_score8() && !scaled_present));
   const bool norm_requested = quantized && !command.independent_quantized_norms &&
-      command.requested_score_mode != stlqpp::SearchScoreMode::kMipsRecon &&
+      (command.requested_score_mode != stlqpp::SearchScoreMode::kMipsRecon || quantized_scaled) &&
       (command.expected_norm8_mode.has_value() || command.expected_norm8_lloyd_iterations.has_value() ||
        (manifest->producer_recipe.has_value() && manifest->producer_recipe->norm8_mode !=
             stlqpp::ReconstructionNorm8Mode::kIdentityLloyd));
@@ -748,7 +748,7 @@ stlqpp::Status PrepareActiveNorms(stlqpp::app::EvalCommand& command,
   using namespace stlqpp::app;
   const bool native = command.active_coefficient_mode == SearchCoefficientMode::kFloat;
   const bool exact = command.active_norm_mode == EvalNormMode::kFloat;
-  const bool scaled = command.active_score_mode == SearchScoreMode::kScaled;
+  const bool scaled = IsScaledScoreMode(command.active_score_mode);
   std::error_code error;
   const bool stored_float = manifest.has_float_norm2() &&
       ShardExists(command.index, manifest, stlqpp::ShardKind::kFloatNorm2, error);
@@ -764,11 +764,6 @@ stlqpp::Status PrepareActiveNorms(stlqpp::app::EvalCommand& command,
     command.prepared_row_scores = std::make_shared<IndexRowScores>(std::move(scores));
     command.norm_preparation_backend = "not_required_mips";
     return Status::Ok();
-  }
-  if (scaled) {
-    auto threads = OpenMpParallelFor::Create(command.effective_threads);
-    if (!threads.ok()) return threads.status();
-    if (const auto status = PrepareOriginalNorms(command, manifest, threads.value()); !status.ok()) return status;
   }
   if ((native && exact && stored_float && !scaled) ||
       (!native && !exact && !command.independent_quantized_norms)) return Status::Ok();
@@ -795,6 +790,7 @@ stlqpp::Status PrepareActiveNorms(stlqpp::app::EvalCommand& command,
       .index = command.index, .cache_root = cache_root,
       .external_source_identity = source_identity,
       .native_float = native, .float_norm = exact, .scaled = scaled,
+      .gain_only = command.active_score_mode == SearchScoreMode::kMipsScaled,
       .use_cuda = command.gpu_norm_enable, .cuda_compute_allowed = command.use_cuda,
       .cuda_device = command.cuda_device, .mode = mode, .iterations = iterations,
       .source = scaled ? command.prepared_original_norms.get() : nullptr, .parallel = &parallel});
@@ -921,7 +917,7 @@ stlqpp::StatusOr<std::string> QueryDiskReport(
   const auto& manifest = decoded.value();
   auto collected = CollectQueryDiskFootprint(command.index, manifest,
       command.active_coefficient_mode == SearchCoefficientMode::kFloat,
-      command.active_score_mode == SearchScoreMode::kScaled,
+      IsScaledScoreMode(command.active_score_mode),
       command.active_score_mode == SearchScoreMode::kMipsRecon,
       command.prepared_norm_payloads, routing_index);
   if (!collected.ok()) return collected.status();
@@ -1064,7 +1060,7 @@ stlqpp::StatusOr<std::filesystem::path> Run(
         " score_mode=" +
         (command.active_score_mode == stlqpp::SearchScoreMode::kCosineRecon
              ? "cosine_recon"
-             : command.active_score_mode == stlqpp::SearchScoreMode::kMipsRecon
+             : stlqpp::IsMipsScoreMode(command.active_score_mode)
                    ? "mips_recon" : "l2") +
         " probe_mode=" + command.ivf_probe_mode +
         (command.ivf_probe_mode == "hnsw" ? " ef_search=" + std::to_string(command.active_ivf_hnsw_ef_search) : "") +
@@ -1320,15 +1316,6 @@ Status RunExactDenseEval(
       if (const Status status = BindFloatScaledContentIdentity(command, *manifest);
           !status.ok()) return fail_preparation(status);
     }
-    const bool native_scaled_requested = std::find(command.representation_runs.begin(), command.representation_runs.end(),
-        EvalRepresentation::kFloatScaled) != command.representation_runs.end();
-    const bool any_scaled_requested = native_scaled_requested || std::find(command.representation_runs.begin(), command.representation_runs.end(),
-        EvalRepresentation::kQuantizedScaled) != command.representation_runs.end();
-    if (any_scaled_requested) {
-      auto parallel = OpenMpParallelFor::Create(command.effective_threads);
-      if (!parallel.ok()) return fail_preparation(parallel.status());
-      if (const auto status = PrepareOriginalNorms(command, *manifest, parallel.value()); !status.ok()) return fail_preparation(status);
-    }
     report_quantized_budget = std::any_of(
         command.representation_runs.begin(),
         command.representation_runs.end(),
@@ -1396,8 +1383,10 @@ Status RunExactDenseEval(
                              : mips ? "float coeffs mips_recon"
                                     : "float coeffs";
     } else if (representation == EvalRepresentation::kFloatScaled) {
-      active.label = "float_scaled";
-      active.display_label = active.active_norm_mode == EvalNormMode::kFloat
+      active.label = active.active_score_mode == SearchScoreMode::kMipsScaled
+          ? "float_scaled_mips" : "float_scaled";
+      active.display_label = active.active_score_mode == SearchScoreMode::kMipsScaled
+          ? "float scaled mips_recon" : active.active_norm_mode == EvalNormMode::kFloat
           ? "float coeffs exact radial scale" : "float coeffs scaled score8";
     } else if (representation == EvalRepresentation::kQuantized) {
       const bool cosine = active.active_score_mode ==
@@ -1411,8 +1400,10 @@ Status RunExactDenseEval(
                                     : active.active_norm_mode == EvalNormMode::kFloat
                                         ? "quantized coeffs float norm" : "quantized classic norm8";
     } else {
-      active.label = "quantized_scaled";
-      active.display_label = active.active_norm_mode == EvalNormMode::kFloat
+      active.label = active.active_score_mode == SearchScoreMode::kMipsScaled
+          ? "quantized_scaled_mips" : "quantized_scaled";
+      active.display_label = active.active_score_mode == SearchScoreMode::kMipsScaled
+          ? "quantized scaled mips_recon" : active.active_norm_mode == EvalNormMode::kFloat
           ? "quantized coeffs exact radial scale" : "quantized scaled score8";
     }
     if (const Status status = PrepareActiveNorms(active, *manifest); !status.ok())
