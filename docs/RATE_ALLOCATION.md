@@ -6,11 +6,29 @@ STLQ++ spends bits on both codeword indices and their coefficients. Increasing t
 
 ![Rate versus recall across all measured code lengths on five datasets, alongside LSQ++, with an additional panel showing recall versus M at fixed 8-bit precision](figures/rate-recall.png)
 
-**Figure 1.** Each colored curve follows one STLQ++ model and forest through a sweep of linkage widths, with root coefficients fixed at 6 bits. The gray dashed line shows LSQ++ across code lengths. Markers show measured configurations. The horizontal axis gives the reported total bits per base vector, including the norm label and IVF assignment. The final panel fixes both STLQ++ coefficient widths at 8 bits and varies M.
+**Figure 1.** Each colored curve follows one STLQ++ model and forest through a sweep of linkage widths, with root coefficients fixed at 6 bits. Diamonds mark the additional M24 measurements on OpenAI-ArXiv. The gray dashed line shows LSQ++ across code lengths. The horizontal axis gives the reported total bits per base vector, including the norm label and IVF assignment. The final panel fixes both STLQ++ coefficient widths at 8 bits and varies M. Markers show measured configurations.
 
 At coarse precision, increasing M generally shifts the rising part of the curve to the right. The curves look roughly like horizontal translations on SIFT and DEEP. On GloVe and OpenAI-ArXiv the flat sections appear earlier, and the rising sections also shift upward. Once a curve flattens, finer coefficients buy little additional recall on that forest. A larger M can reach a higher recall if the budget leaves room for its coefficients. As root reconstructions improve, fewer nodes can lower their reconstruction MSE by taking a parent, and the resulting drop in the linked-node ratio can temper the relative gain in peak recall.
 
 **Read vertically at the intended budget.** On DEEP near 145 bits/vector, M8 with 8-bit linkage reaches 46.77% R@1 at 141.41 bits. M10 with 5-bit linkage reaches **52.36% at 143.24 bits**, while M12 with 3-bit linkage reaches 41.50% at 147.14 bits. Here M10 spends enough bits on both parts of the representation.
+
+### Why does STLQ++ pull ahead at higher rates on OpenAI-ArXiv and GloVe?
+
+On OpenAI-ArXiv, STLQ++ trails LSQ++ near 98 bits/vector (29.48% vs. 32.30% R@1). At 256.57 bits, M18 reaches **54.56%**, ahead of LSQ++ at 258 bits (53.51%). M24 reaches **59.00% at 316.87 bits** with 3-bit linkage coefficients; the nearest LSQ++ measurement is 56.59% at 314 bits. On GloVe, STLQ++ likewise trails near 96 bits (29.21% vs. 30.22%) and leads near 256 bits (68.42% vs. 58.56%).
+
+These curves are consistent with a trade-off in directional resolution. At low rates, assigning bits to coefficients leaves fewer codeword indices to specify a direction. A larger budget can pay for both a richer set of directions and the coefficient precision needed to refine them along the linkage.
+
+### Does a second set of codebooks explain the GloVe result?
+
+STLQ++ M18 uses 18 root codebooks and 18 linkage codebooks. Each node uses the set for its role. On this GloVe100 forest, **95.94% of base vectors** are linked and reuse a parent's reconstruction. To test the effect of extra codebooks at a fixed LSQ++ rate, we split the 256 IVF lists into two groups of 128 with roughly equal training populations. We trained a separate LSQ++ M28 model for each group. A vector's list selects its model, keeping its code at 28 bytes. All 10,000 queries searched the full base.
+
+| Model | Total bits/vector | Shared parameters (MiB) | R@1 (%) | Calibrated R@1 (%) |
+|---|---:|---:|---:|---:|
+| LSQ++ M28, one model | 240.00 | 2.83 | 54.15 | 56.53 |
+| LSQ++ M28, two local models | 240.00 | 5.57 | 53.48 | 56.40 |
+| STLQ++ M18, 6-bit root / 4-bit linkage | 236.27 | 3.55 | **63.59** | **65.75** |
+
+In this single-seed comparison, doubling the LSQ++ codebooks left calibrated R@1 nearly unchanged. The two local models together used more shared parameter memory than STLQ++, yet trailed it by **9.35 percentage points**. Extra codebook capacity alone was insufficient to reproduce the GloVe gain.
 
 ## Root and linkage precision
 
