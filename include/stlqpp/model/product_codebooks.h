@@ -14,6 +14,8 @@
 
 namespace stlqpp {
 
+class F32GemmBackend;
+
 template <int M>
 struct ProductCodebookView final {
   ModelShape shape;
@@ -33,6 +35,9 @@ class ProductCodebooks final {
       const ProductCodebookView<M>& source);
   [[nodiscard]] static StatusOr<ProductCodebooks<M>> Create(
       const ProductCodebookView<M>& source);
+
+  [[nodiscard]] StatusOr<ProductCodebooks> InSourceSpace(
+      ColumnMajorMatrixF32View rotation, const F32GemmBackend& gemm) const;
 
   ProductCodebooks(ProductCodebooks&&) noexcept = default;
   ProductCodebooks& operator=(ProductCodebooks&&) noexcept = default;

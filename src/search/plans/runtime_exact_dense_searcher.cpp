@@ -22,24 +22,18 @@ double Elapsed(Clock::time_point start) {
 StatusOr<RuntimeCanonicalModel> Pretransform(const RuntimeCanonicalModel& model,
                                              const F32GemmBackend& gemm) {
   const auto shape = model.shape();
-  const std::size_t rotation_size =
-      static_cast<std::size_t>(shape.dimension) * shape.dimension;
   const std::uint32_t columns = shape.nlist + (2U * shape.m - 1U) * 256U;
-  std::vector<float> values(
-      rotation_size + static_cast<std::size_t>(shape.dimension) * columns,
-      0.0F);
-  for (std::uint32_t axis = 0; axis < shape.dimension; ++axis)
-    values[static_cast<std::size_t>(axis) * shape.dimension + axis] = 1.0F;
+  std::vector<float> values(static_cast<std::size_t>(shape.dimension) * columns);
   if (const auto status = gemm.MultiplyTransposedLeft(
           {.left = model.rotation(),
            .right = model.root0().values,
            .query_count = columns,
            .right_leading_dimension = shape.dimension,
-           .output = values.data() + rotation_size,
+           .output = values.data(),
            .output_leading_dimension = shape.dimension});
       !status.ok())
     return status;
-  return RuntimeCanonicalModel(shape, std::move(values));
+  return RuntimeCanonicalModel::SourceSpace(shape, std::move(values), {});
 }
 }  // namespace
 
@@ -94,7 +88,8 @@ RuntimeExactDenseSearcher::Create(
     if (parallel->worker_count() == 0)
       return Status::InvalidArgument(
           "runtime search requires at least one worker");
-    if (runtime.pretransform_query_codebooks) {
+    if (model.source_space()) runtime.pretransform_query_codebooks = true;
+    else if (runtime.pretransform_query_codebooks) {
       if (!gemm)
         return Status::InvalidArgument(
             "query pretransform requires a GEMM backend");
@@ -480,8 +475,9 @@ Status RuntimeExactDenseSearcher::SearchImpl(
     const auto capacity = std::min(runtime_.query_block_size, queries.count());
     const auto small_columns = (shape.m - 1U) * 256U;
     const auto edge_columns = shape.m * 256U;
-    std::vector<float> transformed(static_cast<std::size_t>(capacity) *
-                                   shape.dimension);
+    std::vector<float> transformed;
+    if (!gemm_ || !model_.source_space())
+      transformed.resize(static_cast<std::size_t>(capacity) * shape.dimension);
     std::vector<float> roots(static_cast<std::size_t>(capacity) * shape.nlist);
     std::vector<float> small(static_cast<std::size_t>(capacity) *
                              small_columns);
@@ -504,9 +500,9 @@ Status RuntimeExactDenseSearcher::SearchImpl(
       const float* input = queries.data() + static_cast<std::size_t>(first) *
                                                 queries.stride_floats();
       if (gemm_) {
-        auto start = Clock::now();
         std::size_t stride = queries.stride_floats();
-        if (!runtime_.pretransform_query_codebooks) {
+        if (!model_.source_space()) {
+          const auto start = Clock::now();
           if (const auto s = gemm_->MultiplyLeft(
                   {.left = model_.rotation(),
                    .right = input,
@@ -518,9 +514,9 @@ Status RuntimeExactDenseSearcher::SearchImpl(
             return s;
           input = transformed.data();
           stride = shape.dimension;
+          timing.qt_rotate_seconds += Elapsed(start);
         }
-        timing.qt_rotate_seconds += Elapsed(start);
-        start = Clock::now();
+        auto start = Clock::now();
         const auto build = [&](ColumnMajorMatrixF32View book,
                                std::vector<float>& values) {
           return gemm_->MultiplyTransposedLeft(

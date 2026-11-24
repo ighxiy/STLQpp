@@ -40,7 +40,9 @@ BaseListFullTopologySource<M>::Create(
           "base full-topology bad-cluster mask is not binary");
     }
   }
-  auto transform = ModelSpaceTransform::Create(topology_model.rotation());
+  auto transform = topology_model.source_space()
+      ? StatusOr<ModelSpaceTransform>(ModelSpaceTransform::SourceSpace(model_shape.dimension))
+      : ModelSpaceTransform::Create(topology_model.rotation());
   if (!transform.ok()) {
     return transform.status();
   }
@@ -163,14 +165,17 @@ BaseListFullTopologySource<M>::Next() {
   }
   work.bad_cluster =
       !work.real_sample_ids.empty() && bad_cluster_mask_[next_cid_] != 0U;
-  if (const Status status = Rotate(unrotated, &work.rotated_exact_real);
+  if (transform_.source_space()) {
+    work.exact_in_source_space = true;
+    work.rotated_exact_real = std::move(loaded).TakeExactVectors();
+  } else if (const Status status = Rotate(unrotated, &work.rotated_exact_real);
       !status.ok()) {
     return status;
   }
   if (const Status status = ReconstructBasic(loaded, &work); !status.ok()) {
     return status;
   }
-  if (work.bad_cluster)
+  if (work.bad_cluster && !work.exact_in_source_space)
     work.unrotated_exact_real = std::move(loaded).TakeExactVectors();
   work.validated_basic = ValidatedBaseListBasicState{};
   ++next_cid_;

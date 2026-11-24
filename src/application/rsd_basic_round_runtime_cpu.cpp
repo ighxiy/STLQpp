@@ -383,9 +383,8 @@ class CpuRsdBasicExecutor final : public BasicBlockExecutor<Scalar> {
       const ParallelForExecutor& parallel, std::uint32_t maximum_rank) {
     static_assert(std::is_same_v<Scalar, std::uint8_t> ||
                   std::is_same_v<Scalar, float>);
-    if (!IsSupportedRsdRank(maximum_rank) || rotation.values == nullptr ||
-        rotation.rows != basic_algebra.shape().dimension ||
-        rotation.columns != rotation.rows) {
+    if (!IsSupportedRsdRank(maximum_rank) || rotation.columns != rotation.rows ||
+        (rotation.rows && (!rotation.values || rotation.rows != basic_algebra.shape().dimension))) {
       return Status::InvalidArgument(
           "CPU basic RSD requires rank 1, 2 or 3 and a matching rotation");
     }
@@ -465,7 +464,8 @@ class CpuRsdBasicExecutor final : public BasicBlockExecutor<Scalar> {
       const std::uint32_t count = std::min(kTileRows, samples.columns - offset);
       const ColumnMajorMatrixView<Scalar> tile{
           samples.column(offset), samples.rows, count};
-      if (const Status status = Rotate(tile); !status.ok()) return status;
+      const float* prepared = nullptr;
+      if (const Status status = Prepare(tile, prepared); !status.ok()) return status;
       ArrayView<const std::uint32_t> tile_roots;
       ArrayView<const std::uint64_t> tile_ids;
       if (!fixed_roots.empty()) {
@@ -478,13 +478,13 @@ class CpuRsdBasicExecutor final : public BasicBlockExecutor<Scalar> {
       }
       EnsureEncoding(count);
       if (const Status status = Encoder().EncodeInto(
-              {rotated_.data(), samples.rows, count}, tile_roots, tile_ids,
+              {prepared, samples.rows, count}, tile_roots, tile_ids,
               schedule, seed, global_sample_offset + offset, rsd_projection_,
               basic_projection_, root_block_scores_, best_root_errors_,
               selected_roots_, selected_root_dots_, *encoding_workspace_);
           !status.ok()) return status;
       if (exact) {
-        std::copy_n(rotated_.data(),
+        std::copy_n(prepared,
                     static_cast<std::size_t>(samples.rows) * count,
                     exact->data() +
                         static_cast<std::size_t>(offset) * samples.rows);
@@ -529,7 +529,7 @@ class CpuRsdBasicExecutor final : public BasicBlockExecutor<Scalar> {
                                  *parallel_, maximum_rank_);
   }
 
-  Status Rotate(ColumnMajorMatrixView<Scalar> samples) {
+  Status Prepare(ColumnMajorMatrixView<Scalar> samples, const float*& prepared) {
     const std::size_t value_count =
         static_cast<std::size_t>(samples.rows) * samples.columns;
     const float* input = nullptr;
@@ -544,7 +544,12 @@ class CpuRsdBasicExecutor final : public BasicBlockExecutor<Scalar> {
       parallel_->Run(samples.columns, &context, ConvertVector<Scalar>);
       input = converted_.data();
     }
+    if (rotation_transposed_.empty()) {
+      prepared = input;
+      return Status::Ok();
+    }
     rotated_.resize(value_count);
+    prepared = rotated_.data();
     return gemm_->MultiplyTransposedLeft({
         .left = {rotation_transposed_.data(), samples.rows, samples.rows},
         .right = input,

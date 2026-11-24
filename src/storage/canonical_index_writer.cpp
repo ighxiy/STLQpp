@@ -303,7 +303,6 @@ struct RuntimeCanonicalIndexWriter::State final {
   std::ofstream float_norm2;
   std::ofstream float_source_norm2;
   std::uint64_t model_bytes = 0U;
-  std::optional<ShardDescriptor> model_reference;
   std::uint64_t codes_cursor = 0U;
   std::uint64_t parents_cursor = 0U;
   std::uint64_t coefficients_cursor = 0U;
@@ -456,19 +455,9 @@ StatusOr<RuntimeCanonicalIndexWriter> RuntimeCanonicalIndexWriter::CreateImpl(
   state->entries.reserve(shape.nlist);
 
   std::vector<std::uint8_t> model;
-  if (const Status status =
-          CanonicalModelCodec::EncodeRuntime(request.model, model);
-      !status.ok()) {
-    return status;
-  }
-  if (request.model_reference.empty()) {
-    if (const Status status = WriteFile(state->publication.path() / "model.bin",
-                                        model, "model shard");
-        !status.ok())
+  if (!request.model_reference.empty()) {
+    if (auto status = CanonicalModelCodec::EncodeRuntime(request.model, model); !status.ok())
       return status;
-  } else {
-    ShardDescriptor descriptor{ShardKind::kCodebooks, 0U, "model.bin",
-                               model.size(), 1U};
     if (request.model_reference.extension() == ".stlqmodel") {
       auto trained = TrainedModelFile::Open(request.model_reference);
       if (!trained.ok()) return trained.status();
@@ -477,7 +466,6 @@ StatusOr<RuntimeCanonicalIndexWriter> RuntimeCanonicalIndexWriter::CreateImpl(
           std::memcmp(bytes.data(), model.data(), model.size()) != 0)
         return Status::DataLoss(
             "independent trained model disagrees with index model");
-      descriptor.payload_offset = 112U;  // TrainedModelFile v1 wrapper.
     } else {
       auto mapped = ReadOnlyMappedFile::Open(request.model_reference);
       if (!mapped.ok()) return mapped.status();
@@ -486,14 +474,10 @@ StatusOr<RuntimeCanonicalIndexWriter> RuntimeCanonicalIndexWriter::CreateImpl(
         return Status::DataLoss(
             "independent checkpoint model disagrees with index model");
     }
-    descriptor.relative_path =
-        request.model_reference.filename().generic_string();
-    auto reference = ReferenceCanonicalShard(
-        request.model_reference.parent_path(), request.destination, descriptor);
-    if (!reference.ok()) return reference.status();
-    reference.value().relative_path = "model.bin";
-    state->model_reference = std::move(reference).value();
   }
+  if (auto s = CanonicalModelCodec::EncodeSearchModel(request.model, model); !s.ok()) return s;
+  if (auto s = WriteFile(state->publication.path() / "model.bin", model, "model shard"); !s.ok())
+    return s;
   state->model_bytes = model.size();
 
   if (!adopted) {
@@ -983,10 +967,6 @@ Status RuntimeCanonicalIndexWriter::Commit(
       state_->hashes, state_->shape, state_->counts,
       state_->retain_float_forest, state_->publish_quantized_forest,
       state_->scaled_score8_bytes != 0U, state_->retain_float_source_norm2);
-  if (state_->model_reference) {
-    manifest.format_version = IndexManifest::kReferencedShardFormatVersion;
-    manifest.shards.front() = *state_->model_reference;
-  }
   manifest.format_version = adopted
                                 ? IndexManifest::kCompletionOrderFormatVersion
                                 : IndexManifest::kNormCacheLayoutFormatVersion;
@@ -1069,7 +1049,8 @@ StatusOr<CanonicalIndexWriter<M>> CanonicalIndexWriter<M>::Create(
                  .rotation = request.model.rotation,
                  .root0 = books.root0,
                  .root_small = books.root_small,
-                 .edge = books.edge},
+                 .edge = books.edge,
+                 .source_model_identity = request.model.source_model_identity},
        .counts = request.counts,
        .hashes = request.hashes,
        .producer_recipe = request.producer_recipe,

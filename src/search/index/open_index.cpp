@@ -133,8 +133,8 @@ StatusOr<std::shared_ptr<const ResidentIndex<M>>> OpenIndex(
     QueryTransform transform = std::move(model).TakeQueryTransform();
     ProductCodebooks<M> codebooks = std::move(model).TakeCodebooks();
     const bool query_codebooks_pretransformed =
-        query_codebook_pretransform_gemm != nullptr;
-    if (query_codebooks_pretransformed) {
+        transform.source_space() || query_codebook_pretransform_gemm != nullptr;
+    if (!transform.source_space() && query_codebook_pretransform_gemm != nullptr) {
       auto transformed = PretransformQueryCodebooks<M>(
           transform, codebooks, *query_codebook_pretransform_gemm);
       if (!transformed.ok()) {

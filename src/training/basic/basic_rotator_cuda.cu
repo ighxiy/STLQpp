@@ -109,6 +109,16 @@ StatusOr<CudaBasicRotator<Scalar>> CudaBasicRotator<Scalar>::Create(
 }
 
 template <typename Scalar>
+StatusOr<CudaBasicRotator<Scalar>> CudaBasicRotator<Scalar>::SourceSpace(
+    std::uint32_t dimension, CudaContext& context) {
+  auto state = std::make_unique<State>();
+  state->context = &context;
+  state->device = context.device();
+  state->dimension = dimension;
+  return CudaBasicRotator<Scalar>(std::move(state));
+}
+
+template <typename Scalar>
 std::uint32_t CudaBasicRotator<Scalar>::dimension() const noexcept {
   return state_ == nullptr ? 0U : state_->dimension;
 }
@@ -131,10 +141,6 @@ StatusOr<CudaMatrixF32View> CudaBasicRotator<Scalar>::Rotate(
   const std::size_t value_count =
       static_cast<std::size_t>(samples.rows) * samples.columns;
   if (const Status status = state_->converted.Ensure(value_count);
-      !status.ok()) {
-    return status;
-  }
-  if (const Status status = state_->rotated.Ensure(value_count);
       !status.ok()) {
     return status;
   }
@@ -176,6 +182,13 @@ StatusOr<CudaMatrixF32View> CudaBasicRotator<Scalar>::Rotate(
     }
   }
 
+  if (!state_->rotation.data())
+    return CudaMatrixF32View{state_->converted.data(), samples.rows,
+                             samples.columns, samples.rows};
+  if (const Status status = state_->rotated.Ensure(value_count);
+      !status.ok()) {
+    return status;
+  }
   const int dimension = static_cast<int>(state_->dimension);
   const int columns = static_cast<int>(samples.columns);
   if (const Status status = CudaGemmF32(
@@ -194,7 +207,8 @@ StatusOr<CudaMatrixF32View> CudaBasicRotator<Scalar>::Rotate(
 template <typename Scalar>
 StatusOr<std::vector<float>> CudaBasicRotator<Scalar>::CopyToHost(
     CudaMatrixF32View rotated) {
-  if (state_ == nullptr || rotated.values != state_->rotated.data() ||
+  if (state_ == nullptr || rotated.values != (state_->rotation.data()
+                                  ? state_->rotated.data() : state_->converted.data()) ||
       rotated.rows != state_->dimension || rotated.columns == 0U ||
       rotated.leading_dimension != state_->dimension) {
     return Status::InvalidArgument(

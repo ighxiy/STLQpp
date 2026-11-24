@@ -1,6 +1,9 @@
 #include "stlqpp/model/product_codebooks.h"
 
+#include "stlqpp/runtime/cpu/f32_gemm.h"
+
 #include <cmath>
+#include <new>
 #include <cstddef>
 #include <cstdint>
 
@@ -103,6 +106,34 @@ StatusOr<ProductCodebooks<M>> ProductCodebooks<M>::Create(
   }
   return ProductCodebooks<M>(
       std::move(root).value(), std::move(edge));
+}
+
+template <int M>
+StatusOr<ProductCodebooks<M>> ProductCodebooks<M>::InSourceSpace(
+    ColumnMajorMatrixF32View rotation, const F32GemmBackend& gemm) const {
+  try {
+    auto transformed = view();
+    std::vector<std::vector<float>> storage;
+    storage.reserve(2U * shape_.m);
+    const auto fold = [&](ColumnMajorMatrixF32View& book) -> Status {
+      auto& values = storage.emplace_back(
+          static_cast<std::size_t>(book.rows) * book.columns);
+      const Status status = gemm.MultiplyTransposedLeft({
+          .left = rotation, .right = book.values, .query_count = book.columns,
+          .right_leading_dimension = book.rows, .output = values.data(),
+          .output_leading_dimension = book.rows});
+      book.values = values.data();
+      return status;
+    };
+    if (auto s = fold(transformed.root0); !s.ok()) return s;
+    for (auto& book : transformed.root_small)
+      if (auto s = fold(book); !s.ok()) return s;
+    for (auto& book : transformed.edge)
+      if (auto s = fold(book); !s.ok()) return s;
+    return Create(transformed);
+  } catch (const std::bad_alloc&) {
+    return Status::ResourceExhausted("source-space codebook allocation failed");
+  }
 }
 
 template class ProductCodebooks<0>;

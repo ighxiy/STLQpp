@@ -1065,8 +1065,8 @@ stlqpp::StatusOr<std::filesystem::path> Run(
         " probe_mode=" + command.ivf_probe_mode +
         (command.ivf_probe_mode == "hnsw" ? " ef_search=" + std::to_string(command.active_ivf_hnsw_ef_search) : "") +
         " query_tables=" +
-        (command.pretransform_query_codebooks
-             ? "source-pretransformed" : "model-query-rotation"));
+        (searcher.value()->uses_source_queries()
+             ? "source-space" : "model-query-rotation"));
     const stlqpp::SearchOptions options = {
         .nprobe = nprobe, .top_k = command.top_k};
     for (std::uint32_t warmup = 0U; warmup < command.warmup; ++warmup) {

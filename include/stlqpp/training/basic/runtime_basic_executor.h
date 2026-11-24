@@ -41,7 +41,7 @@ class RuntimeCpuRsdBasicExecutor final : public BasicBlockExecutor<Scalar> {
         gemm_(&gemm),
         parallel_(&parallel),
         rank_(rank) {}
-  [[nodiscard]] Status Rotate(ColumnMajorMatrixView<Scalar> samples);
+  [[nodiscard]] Status Prepare(ColumnMajorMatrixView<Scalar> samples, const float*& prepared);
   [[nodiscard]] Status EncodeTiles(ColumnMajorMatrixView<Scalar> samples,
                                    BasicSchedule schedule, std::uint32_t seed,
                                    std::uint64_t offset,

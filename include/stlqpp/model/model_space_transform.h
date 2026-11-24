@@ -18,6 +18,13 @@ class ModelSpaceTransform final {
   [[nodiscard]] static StatusOr<ModelSpaceTransform> Create(
       ColumnMajorMatrixF32View rotation);
 
+  [[nodiscard]] static ModelSpaceTransform SourceSpace(std::uint32_t dimension) {
+    ModelSpaceTransform transform;
+    transform.dimension_ = dimension;
+    return transform;
+  }
+  [[nodiscard]] bool source_space() const noexcept { return values_.empty(); }
+
   ModelSpaceTransform(ModelSpaceTransform&&) noexcept = default;
   ModelSpaceTransform& operator=(ModelSpaceTransform&&) noexcept = default;
   ModelSpaceTransform(const ModelSpaceTransform&) = delete;
@@ -27,6 +34,7 @@ class ModelSpaceTransform final {
     return dimension_;
   }
   [[nodiscard]] ColumnMajorMatrixF32View matrix() const noexcept {
+    if (source_space()) return {};
     return {values_.data(), dimension_, dimension_};
   }
 

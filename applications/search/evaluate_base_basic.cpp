@@ -179,15 +179,19 @@ StatusOr<BasicModelTables> BuildModelTables(
           static_cast<std::size_t>(hsmall) * hsmall),
   };
   const RuntimeProductCodebookView owned = output.model.codebooks_view();
-  TrainedModelHashView hash_view;
-  hash_view.rotation = output.model.rotation();
-  hash_view.root_codebooks.reserve(m);
-  hash_view.root_codebooks.push_back(owned.root0);
-  for (std::uint32_t layer = 1U;
-       layer < static_cast<std::uint32_t>(m); ++layer) {
-    hash_view.root_codebooks.push_back(owned.root_small(layer));
+  if (output.model.source_space()) {
+    output.source_model_identity = output.model.base_identity();
+  } else {
+    TrainedModelHashView hash_view;
+    hash_view.rotation = output.model.rotation();
+    hash_view.root_codebooks.reserve(m);
+    hash_view.root_codebooks.push_back(owned.root0);
+    for (std::uint32_t layer = 1U;
+         layer < static_cast<std::uint32_t>(m); ++layer) {
+      hash_view.root_codebooks.push_back(owned.root_small(layer));
   }
   output.source_model_identity = ArtifactHashFactory::BaseModel(hash_view);
+  }
   if (const Status status = gemm.MultiplyTransposedLeft({
           .left = owned.root0,
           .right = owned.root_small_flat.values,
@@ -454,25 +458,28 @@ Status SearchBaseBasic(const EvalCommand& command,
         std::min(block_capacity, queries.count - first);
     const float* source = queries.values.data() +
         static_cast<std::size_t>(first) * shape.dimension;
-    std::vector<float> transformed(
-        static_cast<std::size_t>(shape.dimension) * count);
+    std::vector<float> transformed;
     std::vector<float> root_dot(
         static_cast<std::size_t>(shape.nlist) * count);
     std::vector<float> small_dot(
         static_cast<std::size_t>((m - 1U) * 256U) * count);
-    if (const Status status = gemm.MultiplyLeft({
-            .left = model.model.rotation(),
-            .right = source,
-            .query_count = count,
-            .right_leading_dimension = shape.dimension,
-            .output = transformed.data(),
-            .output_leading_dimension = shape.dimension,
-        }); !status.ok()) {
-      return status;
+    if (!model.model.source_space()) {
+      transformed.resize(static_cast<std::size_t>(shape.dimension) * count);
+      if (const Status status = gemm.MultiplyLeft({
+              .left = model.model.rotation(),
+              .right = source,
+              .query_count = count,
+              .right_leading_dimension = shape.dimension,
+              .output = transformed.data(),
+              .output_leading_dimension = shape.dimension,
+          }); !status.ok()) {
+        return status;
+      }
+      source = transformed.data();
     }
     if (const Status status = gemm.MultiplyTransposedLeft({
             .left = books.root0,
-            .right = transformed.data(),
+            .right = source,
             .query_count = count,
             .right_leading_dimension = shape.dimension,
             .output = root_dot.data(),
@@ -482,7 +489,7 @@ Status SearchBaseBasic(const EvalCommand& command,
     }
     if (const Status status = gemm.MultiplyTransposedLeft({
             .left = books.root_small_flat,
-            .right = transformed.data(),
+            .right = source,
             .query_count = count,
             .right_leading_dimension = shape.dimension,
             .output = small_dot.data(),

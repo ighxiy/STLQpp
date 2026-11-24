@@ -1,6 +1,7 @@
 #pragma once
 
 #include "stlqpp/core/array_view.h"
+#include "stlqpp/core/artifact_hash.h"
 #include "stlqpp/core/status.h"
 #include "stlqpp/core/status_or.h"
 #include "stlqpp/model/product_codebooks.h"
@@ -18,6 +19,7 @@ template <int M>
 struct CanonicalModelSource final {
   ColumnMajorMatrixF32View rotation;
   ProductCodebookView<M> codebooks;
+  ArtifactHash64 source_model_identity{};
 };
 
 struct RuntimeCanonicalModelSource final {
@@ -26,6 +28,7 @@ struct RuntimeCanonicalModelSource final {
   ColumnMajorMatrixF32View root0;
   ArrayView<const ColumnMajorMatrixF32View> root_small;
   ArrayView<const ColumnMajorMatrixF32View> edge;
+  ArtifactHash64 source_model_identity{};
 };
 
 // Runtime-M view of a decoded canonical model. This owns the exact on-disk
@@ -35,6 +38,15 @@ class RuntimeCanonicalModel final {
   RuntimeCanonicalModel(ModelShape shape, std::vector<float> values) noexcept
       : shape_(shape), values_(std::move(values)) {}
 
+  static RuntimeCanonicalModel SourceSpace(ModelShape shape,
+      std::vector<float> books, ArtifactHash64 base_identity) {
+    RuntimeCanonicalModel model(shape, std::move(books));
+    model.source_space_ = true;
+    model.base_identity_ = base_identity;
+    return model;
+  }
+  [[nodiscard]] bool source_space() const noexcept { return source_space_; }
+  [[nodiscard]] ArtifactHash64 base_identity() const noexcept { return base_identity_; }
   [[nodiscard]] Status Validate() const;
 
   [[nodiscard]] const ModelShape& shape() const noexcept { return shape_; }
@@ -51,6 +63,8 @@ class RuntimeCanonicalModel final {
   }
 
  private:
+  bool source_space_ = false;
+  ArtifactHash64 base_identity_;
   ModelShape shape_;
   std::vector<float> values_;
 };
@@ -82,6 +96,7 @@ class CanonicalModel final {
     return query_transform_;
   }
   [[nodiscard]] ColumnMajorMatrixF32View canonical_rotation() const noexcept {
+    if (canonical_rotation_.empty()) return {};
     const std::uint32_t dimension = codebooks_.shape().dimension;
     return {canonical_rotation_.data(), dimension, dimension};
   }
@@ -99,6 +114,11 @@ class CanonicalModelCodec final {
  public:
   static constexpr std::uint32_t kEncodingVersion = 1U;
   static constexpr std::uint32_t kHeaderBytes = 48U;
+
+  static constexpr std::uint32_t kSourceSpaceVersion = 2U;
+  [[nodiscard]] static Status EncodeSearchModel(
+      const RuntimeCanonicalModelSource& source,
+      std::vector<std::uint8_t>& output);
 
   [[nodiscard]] static Status EncodeRuntime(
       const RuntimeCanonicalModelSource& source,

@@ -281,7 +281,7 @@ coefficients, without retraining the model.
 | `eval.linkage.warmup`, `eval.linkage.repeat` | Untimed warmup count (`0` skips warmup) and positive measured repetition count. |
 | `eval.linkage.query_block` | Positive number of queries processed per block. |
 | `eval.linkage.parent_louds_native_eval` | Decode parents during scanning; false materializes the parent array during loading. |
-| `eval.linkage.pretransform_query_codebooks` | Precompute source-space codebooks to remove per-query rotation; default true. |
+| `eval.linkage.pretransform_query_codebooks` | For older search indexes, move the rotation into the codebooks at load time (default true). New indexes already store source-space codebooks. |
 | `eval.linkage.rerank_candidates` | Number of candidates reranked with original vectors; default zero. |
 | `eval.linkage.rerank_storage` | Original-vector access for reranking: `memory` on Windows; `memory` or `disk` on Linux. |
 | `eval.base.nprobe`, `eval.base.warmup`, `eval.base.repeat` | Corresponding controls for basic-only evaluation. |

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "stlqpp/core/status_or.h"
+#include "stlqpp/core/artifact_hash.h"
 #include "stlqpp/core/numeric/column_major_matrix.h"
 #include "stlqpp/model/product_codebooks.h"
 
@@ -23,12 +24,24 @@ class TrainingModel final {
       ColumnMajorMatrixF32View rotation,
       const ProductCodebookView<M>& codebooks);
 
+  // Final base encoding and publication share these original-coordinate books.
+  static TrainingModel ForBase(ProductCodebooks<M> books, ArtifactHash64 identity) {
+    TrainingModel result({}, std::move(books));
+    result.source_model_identity_ = identity;
+    return result;
+  }
+  [[nodiscard]] ArtifactHash64 source_model_identity() const noexcept {
+    return source_model_identity_;
+  }
+  [[nodiscard]] bool source_space() const noexcept { return rotation_.empty(); }
+
   TrainingModel(TrainingModel&&) noexcept = default;
   TrainingModel& operator=(TrainingModel&&) noexcept = default;
   TrainingModel(const TrainingModel&) = delete;
   TrainingModel& operator=(const TrainingModel&) = delete;
 
   [[nodiscard]] ColumnMajorMatrixF32View rotation() const noexcept {
+    if (source_space()) return {};
     return {rotation_.data(), codebooks_.shape().dimension,
             codebooks_.shape().dimension};
   }
@@ -44,6 +57,7 @@ class TrainingModel final {
                 ProductCodebooks<M> codebooks) noexcept
       : rotation_(std::move(rotation)), codebooks_(std::move(codebooks)) {}
 
+  ArtifactHash64 source_model_identity_;
   std::vector<float> rotation_;
   ProductCodebooks<M> codebooks_;
 };

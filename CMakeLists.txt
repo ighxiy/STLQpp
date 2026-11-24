@@ -438,6 +438,10 @@ target_link_libraries(stlqpp_build_pipeline
 stlqpp_configure_target(stlqpp_build_pipeline)
 
 stlqpp_configure_cblas()
+if(STLQpp_CBLAS_AVAILABLE)
+  target_link_libraries(stlqpp_storage PRIVATE STLQpp::runtime_cblas)
+  target_compile_definitions(stlqpp_storage PRIVATE STLQPP_MODEL_CBLAS=1)
+endif()
 stlqpp_configure_openmp()
 stlqpp_configure_lapack()
 

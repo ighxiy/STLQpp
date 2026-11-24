@@ -27,9 +27,8 @@ RuntimeCpuRsdBasicExecutor<Scalar>::Create(RuntimeRootCodebookView roots,
                                            const F32GemmBackend& gemm,
                                            const ParallelForExecutor& parallel,
                                            std::uint32_t rank) {
-  if (rank < 1U || rank > 3U || !rotation.values ||
-      rotation.rows != roots.shape.dimension ||
-      rotation.columns != rotation.rows)
+  if (rank < 1U || rank > 3U || rotation.columns != rotation.rows ||
+      (rotation.rows && (!rotation.values || rotation.rows != roots.shape.dimension)))
     return Status::InvalidArgument(
         "runtime CPU RSD requires rank 1..3 and matching rotation");
   std::vector<float> transposed(static_cast<std::size_t>(rotation.rows) *
@@ -50,8 +49,8 @@ RuntimeCpuRsdBasicExecutor<Scalar>::Create(RuntimeRootCodebookView roots,
 }
 
 template <typename Scalar>
-Status RuntimeCpuRsdBasicExecutor<Scalar>::Rotate(
-    ColumnMajorMatrixView<Scalar> samples) {
+Status RuntimeCpuRsdBasicExecutor<Scalar>::Prepare(
+    ColumnMajorMatrixView<Scalar> samples, const float*& prepared) {
   const std::size_t count =
       static_cast<std::size_t>(samples.rows) * samples.columns;
   const float* input;
@@ -63,7 +62,12 @@ Status RuntimeCpuRsdBasicExecutor<Scalar>::Rotate(
     parallel_->Run(samples.columns, &context, Convert<Scalar>);
     input = converted_.data();
   }
+  if (rotation_.empty()) {
+    prepared = input;
+    return Status::Ok();
+  }
   rotated_.resize(count);
+  prepared = rotated_.data();
   return gemm_->MultiplyTransposedLeft(
       {.left = {rotation_.data(), samples.rows, samples.rows},
        .right = input,
@@ -88,7 +92,8 @@ Status RuntimeCpuRsdBasicExecutor<Scalar>::EncodeTiles(
     exact->resize(static_cast<std::size_t>(samples.rows) * samples.columns);
   for (std::uint32_t first = 0; first < samples.columns;) {
     const auto count = std::min(kTileRows, samples.columns - first);
-    if (const auto s = Rotate({samples.column(first), samples.rows, count});
+    const float* prepared = nullptr;
+    if (const auto s = Prepare({samples.column(first), samples.rows, count}, prepared);
         !s.ok())
       return s;
     ArrayView<const std::uint32_t> tile_roots;
@@ -101,7 +106,7 @@ Status RuntimeCpuRsdBasicExecutor<Scalar>::EncodeTiles(
       tile_ids = ids_;
     }
     if (const auto s =
-            encoder_.Encode({rotated_.data(), samples.rows, count}, rank_,
+            encoder_.Encode({prepared, samples.rows, count}, rank_,
                             schedule, seed, offset + first, tile_ids, tile_roots,
                             &tile_);
         !s.ok())
@@ -119,8 +124,8 @@ Status RuntimeCpuRsdBasicExecutor<Scalar>::EncodeTiles(
     std::copy(tile_.errors.begin(), tile_.errors.end(),
               output->errors.begin() + first);
     if (exact)
-      std::copy(
-          rotated_.begin(), rotated_.end(),
+      std::copy_n(
+          prepared, static_cast<std::size_t>(count) * samples.rows,
           exact->begin() + static_cast<std::size_t>(first) * samples.rows);
     first += count;
   }

@@ -259,6 +259,8 @@ StatusOr<IndexBuildArtifactHashes> ComputeEvalArtifactHashes(
         model_bytes.data(), model_bytes.size());
     if (!canonical.ok()) return canonical.status();
     const auto& model = canonical.value();
+    if (model.source_space())
+      return stlqpp::Status::InvalidArgument("io.train_file requires a training model with its rotation");
     if (model.shape().m != command.m ||
         model.shape().dimension != command.dimension ||
         model.shape().nlist != command.nlist ||

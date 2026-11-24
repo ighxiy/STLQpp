@@ -41,6 +41,7 @@ class RuntimeExactDenseSearcher final : public Searcher {
          ExactDenseSearchRuntime runtime = {},
          IndexRowScores row_scores = {});
 
+  [[nodiscard]] bool uses_source_queries() const noexcept { return model_.source_space(); }
   [[nodiscard]] std::filesystem::path routing_index_path() const {
     return hnsw_router_ ? hnsw_router_->index_path() : std::filesystem::path{};
   }

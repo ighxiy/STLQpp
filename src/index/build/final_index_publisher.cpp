@@ -593,7 +593,7 @@ Status PublishPreparedClusterSpool(
   const auto& books = request.model.codebooks;
   const RuntimeCanonicalModelSource model = {
       books.shape, request.model.rotation, books.root0, books.root_small,
-      books.edge};
+      books.edge, request.model.source_model_identity};
   return PublishPreparedClusterSpoolImpl(
       directory,
       {request.destination, model, request.hashes,

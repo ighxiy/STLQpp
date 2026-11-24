@@ -95,6 +95,7 @@ ExactDenseSearcher<M>::Create(
     return Status::InvalidArgument(
         "exact dense search runtime dimensions must be positive");
   }
+  if (index->query_transform().source_space()) runtime.pretransform_query_codebooks = true;
   if (runtime.pretransform_query_codebooks !=
       index->query_codebooks_pretransformed()) {
     return Status::FailedPrecondition(

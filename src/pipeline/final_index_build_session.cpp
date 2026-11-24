@@ -255,6 +255,7 @@ Status FinalIndexBuildSession<M>::Publish(
   const CanonicalModelSource<M> model_source = {
       .rotation = state_->model->rotation(),
       .codebooks = state_->model->codebook_view(),
+      .source_model_identity = state_->model->source_model_identity(),
   };
   const Status status = PublishPreparedClusterSpool<M>(
       state_->request.prepared_spool,

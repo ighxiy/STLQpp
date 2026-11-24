@@ -77,6 +77,7 @@ class ExactDenseSearcher final : public Searcher {
       const DenseCpuPlan& plan,
       ExactDenseSearchRuntime runtime);
 
+  [[nodiscard]] bool uses_source_queries() const noexcept { return index_->query_codebooks_pretransformed(); }
   [[nodiscard]] std::filesystem::path routing_index_path() const {
     return hnsw_router_ ? hnsw_router_->index_path() : std::filesystem::path{};
   }

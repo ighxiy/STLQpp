@@ -42,7 +42,9 @@ StatusOr<CudaBasicBlockExecutor<M, Scalar>>
 CudaBasicBlockExecutor<M, Scalar>::Create(
     ColumnMajorMatrixF32View rotation, const BasicCodebookAlgebra<M>& algebra,
     CudaContext& context) {
-  auto rotator = CudaBasicRotator<Scalar>::Create(rotation, context);
+  auto rotator = rotation.values
+      ? CudaBasicRotator<Scalar>::Create(rotation, context)
+      : CudaBasicRotator<Scalar>::SourceSpace(algebra.shape().dimension, context);
   if (!rotator.ok()) {
     return rotator.status();
   }

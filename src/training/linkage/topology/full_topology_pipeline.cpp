@@ -127,7 +127,7 @@ Status ValidateWork(const FullTopologyClusterWork<M>& work,
       static_cast<std::uint64_t>(work.dimension) * real_count;
   const bool valid_unrotated = work.unrotated_exact_real.size() ==
           vector_count ||
-      (!work.bad_cluster && work.unrotated_exact_real.empty());
+      ((work.exact_in_source_space || !work.bad_cluster) && work.unrotated_exact_real.empty());
   const bool valid_source_norm2 = work.source_real_norm2.empty() ||
       work.source_real_norm2.size() == real_count;
   if (work.cid != expected_sequence || work.dimension == 0U ||

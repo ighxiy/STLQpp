@@ -14,7 +14,7 @@ StatusOr<QueryDiskFootprint> CollectQueryDiskFootprint(
       for (const auto& s : manifest.shards) if (s.kind == kind) {
         found = true;
         const auto path = CanonicalShardPath(index, s);
-        if (kind == ShardKind::kCodebooks && s.payload_offset != 0)
+        if (kind == ShardKind::kCodebooks)
           disk.AddRange(role, path, s.payload_offset, s.bytes);
         else disk.AddFile(role, path);
       }

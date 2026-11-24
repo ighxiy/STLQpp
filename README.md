@@ -239,6 +239,17 @@ BASE_LIST=/absolute/path/to/base-list
 original vectors. Retained input lists can be reused while the model and basic
 recipe remain the same.
 
+## Optimize the paper’s disk storage
+
+The paper reports the minimum on-disk search index, including the FP32 rotation
+matrix. Commit `3315f05` reproduces that storage. Latest version has been optimized.
+After training, or when loading a trained checkpoint, STLQ++ applies the inverse
+rotation once to the IVF centroids and all root and linkage codewords before
+base encoding. Basic encoding, linkage construction, and search then operate
+in the original vector coordinates. The index stores these codebooks directly,
+saving **4d² bytes** per search model, e.g., **9 MiB** on OpenAI-ArXiv.
+Training checkpoints retain the learned rotation.
+
 ## Evaluate recall and query throughput
 
 Set `INDEX` to a published `linkage_list` directory. Eval-only loads the model
@@ -256,8 +267,7 @@ INDEX=/absolute/path/to/linkage_list
   --set eval.linkage.warmup=1 --set eval.linkage.repeat=5 \
   --set eval.metric_mode=1 --set 'eval.metric_gt_topks=[1,10,50,100]' \
   --set runtime.omp_threads=16 \
-  --set 'runtime.omp_places="cores"' --set 'runtime.omp_proc_bind="spread"' \
-  --set eval.linkage.pretransform_query_codebooks=true
+  --set 'runtime.omp_places="cores"' --set 'runtime.omp_proc_bind="spread"'
 ```
 
 The probe array is processed in one invocation. Index loading and norm/scale
@@ -284,9 +294,6 @@ Additional evaluation options:
 - **Native LOUDS:** `--set eval.linkage.parent_louds_native_eval=true` decodes
   parent pointers during scanning. The default materializes a parent array at
   index load time. Both use the same on-disk topology.
-- **Pretransformed codebooks:** `eval.linkage.pretransform_query_codebooks=true`
-  prepares source-space query tables from transformed codebooks and removes
-  per-query rotation. This is enabled by default.
 - **Basic recall:** enable `eval.base.enabled` while building/retaining the basic
   artifact, and choose `eval.base.nprobe`. It measures the independent basic
   representation before linkage.

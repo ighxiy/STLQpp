@@ -468,8 +468,14 @@ StatusOr<std::pair<std::string, std::string>> Identity(
          << ReconstructionNorm8ModeName(r.mode)
          << "\nlut_kmeans_niter=" << r.iterations << '\n';
   if (r.mode == ReconstructionNorm8Mode::kReferenceLloyd) {
+    const auto bytes = files.model_bytes();
+    if (bytes.size() < CanonicalModelCodec::kHeaderBytes)
+      return Status::DataLoss("truncated reference-norm model");
+    const bool source_space = LoadLittleEndianU32(bytes.data() + 8U) ==
+                              CanonicalModelCodec::kSourceSpaceVersion;
     text << "reference=global_reconstruction_mean\n"
-            "reference_domain=model_coordinates\n"
+         << "reference_domain=" << (source_space ? "source_coordinates" : "model_coordinates")
+         << '\n' <<
             "reference_mean=float64_descendant_coefficient_reduction\n"
             "residual_norm=origin_norm2_minus_2_projection_plus_reference_norm2\n"
             "binning=log\nlog_epsilon=max(median_residual_norm2*1e-6,1e-12)\n"

@@ -122,17 +122,21 @@ void BuildRuntimeCanonicalQueryTablesTrusted(const RuntimeCanonicalModel& model,
                                              float* small, float* edges,
                                              bool skip_root0) {
   const auto& shape = model.shape();
-  std::fill_n(transformed, shape.dimension, 0.0F);
-  const auto rotation = model.rotation();
-  for (std::uint32_t source_axis = 0U; source_axis < shape.dimension;
-       ++source_axis) {
-    const float* column =
-        rotation.values +
-        static_cast<std::size_t>(source_axis) * shape.dimension;
-    for (std::uint32_t target_axis = 0U; target_axis < shape.dimension;
-         ++target_axis) {
-      transformed[target_axis] +=
-          column[target_axis] * source_query[source_axis];
+  if (model.source_space()) {
+    std::copy_n(source_query, shape.dimension, transformed);
+  } else {
+    std::fill_n(transformed, shape.dimension, 0.0F);
+    const auto rotation = model.rotation();
+    for (std::uint32_t source_axis = 0U; source_axis < shape.dimension;
+         ++source_axis) {
+      const float* column =
+          rotation.values +
+          static_cast<std::size_t>(source_axis) * shape.dimension;
+      for (std::uint32_t target_axis = 0U; target_axis < shape.dimension;
+           ++target_axis) {
+        transformed[target_axis] +=
+            column[target_axis] * source_query[source_axis];
+      }
     }
   }
   if (!skip_root0) {

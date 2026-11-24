@@ -679,12 +679,24 @@ class TypedIndexBuildStages final : public IndexBuildStages {
         request_.base_basic, request_.artifacts, request_.final_index)};
   }
 
+  Status PrepareBaseModel() {
+    if (base_model_) return Status::Ok();
+    const auto& trained = training->checkpoint.model();
+    auto books = trained.codebooks().InSourceSpace(trained.rotation(), *runtime_.gemm);
+    if (!books.ok()) return books.status();
+    base_model_.emplace(TrainingModel<M>::ForBase(
+        std::move(books).value(), ArtifactHashFactory::BaseModel(HashView(trained))));
+    LogInfo("Base codebooks prepared in original vector coordinates.");
+    return Status::Ok();
+  }
+
   StatusOr<BaseBasicStageResult> EncodeBase(
       const BaseBasicStageOptions& options) override {
+    if (auto s = PrepareBaseModel(); !s.ok()) return s;
     return std::visit([&](auto& inputs) {
       using Scalar = typename std::decay_t<decltype(inputs)>::Scalar;
       return ScalarBaseBasicStage<M, Scalar>::Run(
-          training->checkpoint.model(), *inputs.source, *inputs.runtime,
+          *base_model_, *inputs.source, *inputs.runtime,
           *runtime_.base_list_parallel, options);
     }, runtime_.base);
   }
@@ -693,7 +705,8 @@ class TypedIndexBuildStages final : public IndexBuildStages {
       const BaseBasicStageResult& base, const FinalIndexBuildOptions& options,
       const IndexBuildArtifactHashes& hashes, Clock::time_point begin) override {
     const auto& checkpoint = training->checkpoint;
-    const auto& model = checkpoint.model();
+    if (auto s = PrepareBaseModel(); !s.ok()) return s;
+    const auto& model = *base_model_;
     auto grams = SelectedAtomGramTables<M>::Create(
         model.codebooks(), *runtime_.gemm,
         (options.retain_float_norm2 || options.publish_quantized_forest) ? SelectedAtomGramDemand::kReconstructionNorm
@@ -707,10 +720,6 @@ class TypedIndexBuildStages final : public IndexBuildStages {
     if (!topology.ok()) return topology.status();
     FinalIndexPublicationStatistics publication;
     auto final_request = MakeFinalTopologyBuildRequest(options, hashes);
-    const auto artifact = training->checkpoint_directory;
-    if (!artifact.empty())
-      final_request.index.model_reference = artifact.extension() == ".stlqmodel"
-          ? artifact : artifact / "model.bin";
     auto published = BuildFinalFullTopologyIndexFromSource<M>(
         final_request, model,
         topology.value()->source(), topology.value()->executors(), grams.value(),
@@ -741,6 +750,7 @@ class TypedIndexBuildStages final : public IndexBuildStages {
   const IndexBuildRequest<M>& request_;
   IndexBuildRuntime<M>& runtime_;
   std::optional<RootModelInitializationResult<M>> root_;
+  std::optional<TrainingModel<M>> base_model_;
 };
 
 }  // namespace

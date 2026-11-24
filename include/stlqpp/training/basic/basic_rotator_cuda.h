@@ -17,6 +17,8 @@ class CudaBasicRotator final {
   [[nodiscard]] static StatusOr<CudaBasicRotator<Scalar>> Create(
       ColumnMajorMatrixF32View rotation,
       CudaContext& context);
+  [[nodiscard]] static StatusOr<CudaBasicRotator<Scalar>> SourceSpace(
+      std::uint32_t dimension, CudaContext& context);
 
   ~CudaBasicRotator();
   CudaBasicRotator(CudaBasicRotator&& other) noexcept;

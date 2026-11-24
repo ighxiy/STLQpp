@@ -7,26 +7,6 @@
 #include <vector>
 
 namespace stlqpp {
-namespace {
-
-Status TransformCodebook(const F32GemmBackend& gemm,
-                         ColumnMajorMatrixF32View transform,
-                         ColumnMajorMatrixF32View source,
-                         std::vector<float>* destination) {
-  destination->resize(
-      static_cast<std::size_t>(source.rows) * source.columns);
-  return gemm.MultiplyTransposedLeft({
-      .left = transform,
-      .right = source.values,
-      .query_count = source.columns,
-      .right_leading_dimension = source.rows,
-      .output = destination->data(),
-      .output_leading_dimension = source.rows,
-  });
-}
-
-}  // namespace
-
 template <int M>
 StatusOr<QueryTableBatch<M>> QueryTableBatch<M>::Create(
     const ModelShape& shape,
@@ -47,51 +27,7 @@ StatusOr<ProductCodebooks<M>> PretransformQueryCodebooks(
     const QueryTransform& transform,
     const ProductCodebooks<M>& source,
     const F32GemmBackend& gemm) {
-  try {
-    const ColumnMajorMatrixF32View matrix = transform.matrix();
-    std::vector<float> root0;
-    std::array<std::vector<float>, M - 1> root_small;
-    std::array<std::vector<float>, M> edge;
-    if (const Status status = TransformCodebook(
-            gemm, matrix, source.root0(), &root0);
-        !status.ok()) {
-      return status;
-    }
-    for (std::uint32_t layer = 1U;
-         layer < static_cast<std::uint32_t>(M); ++layer) {
-      if (const Status status = TransformCodebook(
-              gemm, matrix, source.root_small(layer),
-              &root_small[layer - 1U]);
-          !status.ok()) {
-        return status;
-      }
-    }
-    for (std::uint32_t layer = 0U;
-         layer < static_cast<std::uint32_t>(M); ++layer) {
-      if (const Status status = TransformCodebook(
-              gemm, matrix, source.edge(layer), &edge[layer]);
-          !status.ok()) {
-        return status;
-      }
-    }
-    ProductCodebookView<M> view;
-    view.shape = source.shape();
-    view.root0 = {root0.data(), view.shape.dimension, view.shape.nlist};
-    for (std::uint32_t layer = 1U;
-         layer < static_cast<std::uint32_t>(M); ++layer) {
-      view.root_small[layer - 1U] = {
-          root_small[layer - 1U].data(), view.shape.dimension, 256U};
-    }
-    for (std::uint32_t layer = 0U;
-         layer < static_cast<std::uint32_t>(M); ++layer) {
-      view.edge[layer] = {
-          edge[layer].data(), view.shape.dimension, 256U};
-    }
-    return ProductCodebooks<M>::Create(view);
-  } catch (const std::bad_alloc&) {
-    return Status::ResourceExhausted(
-        "pretransformed query codebook allocation failed");
-  }
+  return source.InSourceSpace(transform.matrix(), gemm);
 }
 
 template <int M>

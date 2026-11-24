@@ -21,6 +21,7 @@ namespace {
 
 template <int M>
 ArtifactHash64 BaseModelIdentity(const TrainingModel<M>& model) {
+  if (model.source_space()) return model.source_model_identity();
   TrainedModelHashView view;
   view.rotation = model.rotation();
   view.root_codebooks.reserve(model.codebooks().shape().m);

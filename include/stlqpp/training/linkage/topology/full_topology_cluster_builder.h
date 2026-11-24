@@ -109,6 +109,8 @@ struct FullTopologyClusterWork final {
   std::optional<ValidatedBaseListBasicState> validated_basic = std::nullopt;
   bool bad_cluster = false;
 
+  bool exact_in_source_space = false;
+
   [[nodiscard]] std::uint32_t real_count() const noexcept {
     return static_cast<std::uint32_t>(real_sample_ids.size());
   }
@@ -116,7 +118,8 @@ struct FullTopologyClusterWork final {
     const std::uint32_t count = real_count();
     return {
         .cid = cid,
-        .unrotated_exact_real = {unrotated_exact_real.data(), dimension, count},
+        .unrotated_exact_real = {exact_in_source_space ? rotated_exact_real.data()
+                                                    : unrotated_exact_real.data(), dimension, count},
         .rotated_exact_real = {rotated_exact_real.data(), dimension, count},
         .borrow_rotated_exact_real = true,
         .basic_real_reconstructions = {basic_real_reconstructions.data(),

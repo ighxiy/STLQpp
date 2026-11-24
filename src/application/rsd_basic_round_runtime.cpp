@@ -176,7 +176,9 @@ CudaRsdBasicRoundRuntimeFactory<M, Scalar>::Create(
     return Status::InvalidArgument(
         "CUDA basic RSD factory requires rank 1, 2 or 3");
   }
-  auto rotator = CudaBasicRotator<Scalar>::Create(rotation, *cuda_);
+  auto rotator = rotation.values
+      ? CudaBasicRotator<Scalar>::Create(rotation, *cuda_)
+      : CudaBasicRotator<Scalar>::SourceSpace(codebooks.shape().dimension, *cuda_);
   if (!rotator.ok()) return rotator.status();
   std::shared_ptr<const CudaLinkageRsdDeviceModel<M>> rsd_model;
   std::unique_ptr<CudaLinkageRsdEncoder<M>> rsd_owner;
