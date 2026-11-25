@@ -16,6 +16,7 @@ query scanning runs on the CPU. CPU and CUDA builds use the same artifact format
 - [Configuration](docs/CONFIGURATION.md): parameters and resource settings.
 - [MIPS results](docs/MIPS.md): Although STLQ++ is not specially designed for MIPS, we compares MIPS results with ScaNN and LSQ++.
 - [Rate allocation guide](docs/RATE_ALLOCATION.md): General performance of rate allocation between codes and coefficients.
+- [IVF sensitivity](docs/IVF_SENSITIVITY.md) compares recall and throughput across five IVF list counts at two code rates.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): build, memory, paths, and evaluation.
 
 ## Build
